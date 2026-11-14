@@ -224,7 +224,8 @@ class TableSeatCard extends StatelessWidget {
     final seatChar =
         seatNo >= 1 && seatNo <= _cnNums.length ? _cnNums[seatNo - 1] : '$seatNo';
     final cardWidth = compact ? 136.0 : w;
-    final cardHeight = compact ? 176.0 : cardH;
+    // 紧凑模式需要给底部“思考中”提示留出空间，避免父级高度不足时溢出
+    final cardHeight = compact ? 162.0 : cardH;
 
     final card = DragTarget<CardModel>(
       onWillAcceptWithDetails: (details) => !isMe && alive,

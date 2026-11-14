@@ -46,3 +46,9 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 本地截图/日志（预览与调试产物，不入库）
+/preview_board.png
+/preview_window.png
+/tools_preview*.log
+

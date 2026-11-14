@@ -1,6 +1,6 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
-import '../../models/card_catalog.dart';
+import 'card_face.dart';
 
 /// 一张正在结算展示的牌
 class PlayedCard {
@@ -43,12 +43,9 @@ class CenterStageView extends StatelessWidget {
             Container(
               width: 120,
               height: 120,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [
-                  const Color(0x33FFB300),
-                  Colors.transparent,
-                ]),
+                gradient: RadialGradient(colors: [Color(0x33FFB300), Colors.transparent]),
               ),
             ),
             const Text('三 国 杀',
@@ -84,7 +81,6 @@ class _CardWithWatermark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final info = CardCatalog.of(card.typeKey ?? '', card.name);
     final isRed = card.suit == 'HEART' || card.suit == 'DIAMOND';
 
     return TweenAnimationBuilder<double>(
@@ -99,68 +95,18 @@ class _CardWithWatermark extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
+          // 使用官方牌面
+          CardFace(
+            typeKey: card.typeKey ?? '',
+            name: card.name,
+            suitSymbol: isRed ? '♥' : '♠',
+            points: card.points ?? '',
+            isRed: isRed,
+            index: 0,
             width: CenterStageView.cardW,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFFFFFBEF), Color(0xFFE9D9B4)],
-              ),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: info.accent, width: 2),
-              boxShadow: [
-                BoxShadow(
-                    color: info.accent.withValues(alpha: 0.55),
-                    blurRadius: 20,
-                    spreadRadius: 1),
-                const BoxShadow(color: Colors.black87, blurRadius: 10),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                Container(
-                  height: 15,
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
-                  color: info.accent,
-                  child: Row(children: [
-                    Expanded(
-                      child: Text(info.category,
-                          style: const TextStyle(
-                              fontSize: 8.5,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                    if (card.points != null)
-                      Text('${isRed ? '♥' : '♠'}${card.points}',
-                          style: const TextStyle(
-                              fontSize: 8.5, color: Colors.white)),
-                  ]),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Text(card.name,
-                      style: TextStyle(
-                          fontSize: card.name.length > 3 ? 13 : 19,
-                          fontWeight: FontWeight.w900,
-                          color: const Color(0xFF2B1B12))),
-                ),
-                Container(
-                    height: 1,
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    color: info.accent.withValues(alpha: 0.3)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 3, 6, 5),
-                  child: Text(info.desc,
-                      textAlign: TextAlign.center,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 7.5, height: 1.2, color: Color(0xFF4E342E))),
-                ),
-              ],
-            ),
+            height: CenterStageView.cardH,
+            showIndex: false,
+            showCorner: card.points != null,
           ),
           // 水印：来源 对 目标
           Container(

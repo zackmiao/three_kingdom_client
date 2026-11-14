@@ -347,11 +347,27 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
         _cardDisplayTimer?.cancel();
         final String cardNameStr = cardName;
+        // 从播报里解析牌的花色与点数（如「杀【黑桃K】」）
+        String? playedSuit;
+        String? playedPoints;
+        final labelMatch =
+            RegExp(r'【(黑桃|红桃|草花|方片)(A|2|3|4|5|6|7|8|9|10|J|Q|K)】').firstMatch(log);
+        if (labelMatch != null) {
+          playedSuit = switch (labelMatch.group(1)!) {
+            '黑桃' => 'SPADE',
+            '红桃' => 'HEART',
+            '草花' => 'CLUB',
+            _ => 'DIAMOND',
+          };
+          playedPoints = labelMatch.group(2);
+        }
         final playedCard = PlayedCard(
           name: cardNameStr,
           typeKey: CardCatalog.typeKeyOfName(cardNameStr),
           sourceName: srcName,
           targetNames: List<String>.from(tgNames),
+          suit: playedSuit,
+          points: playedPoints,
         );
         setState(() {
           _activeCardTargetNames = tgNames;
