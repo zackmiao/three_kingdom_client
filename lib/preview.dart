@@ -178,8 +178,9 @@ class _BoardPreviewState extends State<BoardPreview> {
                   seatNo: 5,
                 ),
               ),
-              // 中央结算
-              Center(
+              // 中央结算（视觉中心略偏下）
+              Align(
+                alignment: const Alignment(0, 0.70),
                 child: CenterStageView(cards: [
                   PlayedCard(
                       name: '杀',
@@ -231,7 +232,7 @@ class _BoardPreviewState extends State<BoardPreview> {
                 onPass: () {},
               ),
               SizedBox(
-                height: 258,
+                height: 330,
                 child: Row(children: [
                   // 左功能
                   SizedBox(
@@ -292,34 +293,37 @@ class _BoardPreviewState extends State<BoardPreview> {
                       ),
                     ]),
                   ),
-                  // 右区
+                  // 右区：技能 + 装备栏 + 主视角武将卡
                   SizedBox(
-                    width: 172,
+                    width: 400,
                     child: Column(children: [
                       Container(
-                        height: 46,
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                        height: 58,
+                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
                         child: Row(children: [
                           for (final n in ['武圣', '乱击', '清正'])
                             Expanded(
                               child: Container(
-                                margin: const EdgeInsets.only(right: 5),
+                                margin: const EdgeInsets.only(right: 8),
                                 decoration: BoxDecoration(
                                   gradient: const LinearGradient(colors: [
                                     Color(0xFFB8860B),
                                     Color(0xFF6D4C00)
                                   ]),
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(7),
                                   border: Border.all(color: const Color(0xFFFFD54F)),
+                                  boxShadow: const [
+                                    BoxShadow(color: Color(0x66FFB300), blurRadius: 8)
+                                  ],
                                 ),
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     const Text('发动',
-                                        style: TextStyle(fontSize: 7.5, color: Color(0xFFFFE082))),
+                                        style: TextStyle(fontSize: 8.5, color: Color(0xFFFFE082))),
                                     Text(n,
                                         style: const TextStyle(
-                                            fontSize: 12,
+                                            fontSize: 15,
                                             color: Colors.white,
                                             fontWeight: FontWeight.w900)),
                                   ],
@@ -328,54 +332,105 @@ class _BoardPreviewState extends State<BoardPreview> {
                             ),
                         ]),
                       ),
-                      SizedBox(
-                        height: 22,
+                      Expanded(
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            for (final e in ['⚔', '🛡', '🐎', '🐴'])
-                              Expanded(
-                                child: Container(
-                                  margin: const EdgeInsets.fromLTRB(3, 0, 3, 0),
-                                  decoration: BoxDecoration(
-                                    color: e == '⚔'
-                                        ? const Color(0x55B8860B)
-                                        : Colors.black.withValues(alpha: 0.35),
-                                    borderRadius: BorderRadius.circular(3),
-                                    border: Border.all(
-                                        color: e == '⚔'
-                                            ? const Color(0xFFFFD54F)
-                                            : const Color(0x33FFD9A0),
-                                        width: 0.7),
-                                  ),
-                                  child: Center(
-                                      child: Text(e,
-                                          style: TextStyle(
-                                              fontSize: 9,
-                                              color: e == '⚔' ? Colors.white : Colors.white24))),
+                            SizedBox(
+                              width: 136,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 8, bottom: 10),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    for (final e in [
+                                      ['⚔', '武器', '诸葛连弩'],
+                                      ['🛡', '防具', '未装备'],
+                                      ['🐎', '-1 马', '未装备'],
+                                      ['🐴', '+1 马', '未装备'],
+                                    ])
+                                      Container(
+                                        height: 56,
+                                        margin: const EdgeInsets.only(bottom: 7),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(colors: e[2] != '未装备'
+                                              ? [const Color(0x66B8860B), const Color(0x33150E09)]
+                                              : [
+                                                  Colors.black.withValues(alpha: 0.4),
+                                                  Colors.black.withValues(alpha: 0.25)
+                                                ]),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: e[2] != '未装备'
+                                                  ? const Color(0xFFFFD54F)
+                                                  : const Color(0x33FFD9A0),
+                                              width: e[2] != '未装备' ? 1.1 : 0.8),
+                                        ),
+                                        child: Row(children: [
+                                          SizedBox(
+                                            width: 32,
+                                            child: Center(
+                                              child: Text(e[0],
+                                                  style: TextStyle(
+                                                      fontSize: 19,
+                                                      color: e[2] != '未装备'
+                                                          ? Colors.white
+                                                          : Colors.white24)),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(e[1],
+                                                    style: const TextStyle(
+                                                        fontSize: 9, color: Color(0x99FFE0B2))),
+                                                Text(e[2],
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                        fontSize: 11.5,
+                                                        color: e[2] != '未装备'
+                                                            ? const Color(0xFFFFF3C4)
+                                                            : Colors.white24,
+                                                        fontWeight: FontWeight.bold)),
+                                              ],
+                                            ),
+                                          ),
+                                        ]),
+                                      ),
+                                  ],
                                 ),
                               ),
+                            ),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.bottomCenter,
+                                child: TableSeatCard(
+                                  id: 'p1',
+                                  name: '主机玩家',
+                                  hero: '谋关羽',
+                                  hp: 2,
+                                  maxHp: 4,
+                                  handCount: 7,
+                                  equips: '诸葛连弩,',
+                                  judges: const [],
+                                  marks: const [],
+                                  isMe: true,
+                                  role: 'LOYAL',
+                                  roleLabel: '忠臣',
+                                  armor: 1,
+                                  seatNo: 1,
+                                  isCurrentTurn: true,
+                                  currentPhaseName: '出牌阶段',
+                                  compact: true,
+                                ),
+                              ),
+                            ),
                           ],
-                        ),
-                      ),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: TableSeatCard(
-                            id: 'p1',
-                            name: '主机玩家',
-                            hero: '谋关羽',
-                            hp: 2,
-                            maxHp: 4,
-                            handCount: 7,
-                            equips: '诸葛连弩,',
-                            judges: const [],
-                            marks: const [],
-                            isMe: true,
-                            role: 'LOYAL',
-                            roleLabel: '忠臣',
-                            seatNo: 1,
-                            compact: true,
-                          ),
                         ),
                       ),
                     ]),

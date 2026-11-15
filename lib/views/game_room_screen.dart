@@ -1430,7 +1430,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                 top: e.value.dy,
                 child: seatWidget(_opponents.firstWhere((o) => o.id == e.key)),
               ),
-          Center(child: CenterStageView(cards: _shownCards)),
+          // 出牌结算区：放到窗口的视觉正中心略偏下
+          // （牌桌可用区在窗口上部 46..~557，居中用 0.5 会偏高，故用 0.70
+          //   使卡牌中心落在窗口纵向中心下方约 10px）
+          Align(
+            alignment: const Alignment(0, 0.70),
+            child: CenterStageView(cards: _shownCards),
+          ),
           // 他人对我出牌时的红框警示
           if (_activeCardTargetIds.contains(widget.playerId))
             Positioned.fill(
@@ -1540,7 +1546,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               onPass: () => _sendResponse('PASS'),
             ),
           SizedBox(
-            height: 258,
+            height: 330,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1679,30 +1685,30 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         .toList();
 
     return SizedBox(
-      width: 172,
+      width: 400,
       child: Column(
         children: [
           // 主动技能（大号金色按钮）
           if (activeSkills.isNotEmpty)
             Container(
-              height: 46,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              height: 58,
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
                   for (final n in activeSkills)
                     Padding(
-                      padding: const EdgeInsets.only(right: 5),
+                      padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
                         onTap: () => _onSkillTap(n),
                         child: Container(
                           padding:
-                              const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                              const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(colors: _activeSkill == n
                                 ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
                                 : [const Color(0xFFB8860B), const Color(0xFF6D4C00)]),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: BorderRadius.circular(7),
                             border: Border.all(
                                 color: _activeSkill == n
                                     ? Colors.yellowAccent
@@ -1714,11 +1720,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text('发动', style: TextStyle(fontSize: 7.5, color: Colors.amber[100])),
+                              Text('发动', style: TextStyle(fontSize: 8.5, color: Colors.amber[100])),
                               Text(n,
                                   style: const TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 15,
                                       color: Colors.white,
                                       fontWeight: FontWeight.w900)),
                             ],
@@ -1730,93 +1737,124 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                     GestureDetector(
                       onTap: () => _sendResponse('GUOSECLEAR'),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
                           color: const Color(0xFF5D4037),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(7),
                           border: Border.all(color: const Color(0xFFFFD54F), width: 1),
                         ),
                         child: const Center(
                           child: Text('弃乐',
-                              style: TextStyle(fontSize: 11, color: Colors.white)),
+                              style: TextStyle(fontSize: 13, color: Colors.white)),
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-          // 装备缩略
-          Container(
-            key: _equipKey,
-            height: 22,
-            padding: const EdgeInsets.symmetric(horizontal: 6),
+          // 装备栏（卡片左侧竖排 4 格）+ 主视角武将卡
+          Expanded(
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                for (final e in [
-                  ['⚔', _weapon],
-                  ['🛡', _armor],
-                  ['🐎', _offHorse],
-                  ['🐴', _defHorse],
-                ])
-                  Expanded(
-                    child: Tooltip(
-                      message: e[1],
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 3),
-                        decoration: BoxDecoration(
-                          color: e[1] != '无'
-                              ? const Color(0x55B8860B)
-                              : Colors.black.withValues(alpha: 0.35),
-                          borderRadius: BorderRadius.circular(3),
-                          border: Border.all(
-                              color: e[1] != '无'
-                                  ? const Color(0xFFFFD54F)
-                                  : const Color(0x33FFD9A0),
-                              width: 0.7),
-                        ),
-                        child: Center(
-                          child: Text(e[0],
-                              style: TextStyle(
-                                  fontSize: 9,
-                                  color: e[1] != '无'
-                                      ? Colors.white
-                                      : Colors.white24)),
-                        ),
-                      ),
+                Container(
+                  key: _equipKey,
+                  width: 136,
+                  padding: const EdgeInsets.only(right: 8, bottom: 10),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _buildEquipSlot('⚔', '武器', _weapon),
+                      _buildEquipSlot('🛡', '防具', _armor),
+                      _buildEquipSlot('🐎', '-1 马', _offHorse),
+                      _buildEquipSlot('🐴', '+1 马', _defHorse),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: TableSeatCard(
+                      id: widget.playerId,
+                      name: widget.playerName,
+                      hero: _heroName,
+                      hp: _hp,
+                      maxHp: _maxHp,
+                      handCount: _handCards.length,
+                      equips: [_weapon, _armor, _defHorse, _offHorse].join(','),
+                      judges: _judgeAreaCards,
+                      marks: _myMarks,
+                      isMe: true,
+                      role: _myRole,
+                      roleLabel: _myRoleCn,
+                      alive: !_isDead,
+                      armor: _myArmor,
+                      flipped: _myFlipped,
+                      seatNo: 1,
+                      compact: true,
+                      isCurrentTurn: _turnPlayerId == widget.playerId,
+                      currentPhaseName:
+                          _turnPlayerId == widget.playerId ? _currentPhaseName : null,
                     ),
                   ),
+                ),
               ],
             ),
           ),
-          // 主视角武将卡
-          Expanded(
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: TableSeatCard(
-                id: widget.playerId,
-                name: widget.playerName,
-                hero: _heroName,
-                hp: _hp,
-                maxHp: _maxHp,
-                handCount: _handCards.length,
-                equips: [_weapon, _armor, _defHorse, _offHorse].join(','),
-                judges: _judgeAreaCards,
-                marks: _myMarks,
-                isMe: true,
-                role: _myRole,
-                roleLabel: _myRoleCn,
-                alive: !_isDead,
-                armor: _myArmor,
-                flipped: _myFlipped,
-                seatNo: 1,
-                compact: true,
-                isCurrentTurn: _turnPlayerId == widget.playerId,
-                currentPhaseName:
-                    _turnPlayerId == widget.playerId ? _currentPhaseName : null,
+        ],
+      ),
+    );
+  }
+
+  /// 主视角装备栏的一格（图标 + 槽位名 + 装备名）
+  Widget _buildEquipSlot(String icon, String label, String name) {
+    final bool has = name != '无' && name.isNotEmpty;
+    return Tooltip(
+      message: has ? '$label：$name' : '$label：未装备',
+      child: Container(
+        height: 56,
+        margin: const EdgeInsets.only(bottom: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: has
+                ? [const Color(0x66B8860B), const Color(0x33150E09)]
+                : [Colors.black.withValues(alpha: 0.4), Colors.black.withValues(alpha: 0.25)],
+          ),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: has ? const Color(0xFFFFD54F) : const Color(0x33FFD9A0),
+              width: has ? 1.1 : 0.8),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              child: Center(
+                child: Text(icon,
+                    style: TextStyle(
+                        fontSize: 19, color: has ? Colors.white : Colors.white24)),
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(label,
+                      style: const TextStyle(fontSize: 9, color: Color(0x99FFE0B2))),
+                  Text(has ? name : '未装备',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          color: has ? const Color(0xFFFFF3C4) : Colors.white24,
+                          fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

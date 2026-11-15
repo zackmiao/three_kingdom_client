@@ -30,14 +30,21 @@ class ScaledStage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
+      // 约束无界（例如被放进滚动视图）时不做缩放，直接交给子级布局
+      if (!c.hasBoundedWidth || !c.hasBoundedHeight) return child;
       final double s = stageScaleOf(c);
-      if ((s - 1.0).abs() < 0.002) return child;
-      return FittedBox(
-        fit: BoxFit.fill,
-        child: SizedBox(
-          width: c.maxWidth / s,
-          height: c.maxHeight / s,
-          child: child,
+      if ((s - 1.0).abs() < 0.002) return SizedBox.expand(child: child);
+      // 关键：子级逻辑尺寸 = 父级尺寸 / s，再整体缩放 s 倍，
+      // 两个轴都恰好铺满，任何宽高比下都不会出现黑边或留白。
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.fill,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: c.maxWidth / s,
+            height: c.maxHeight / s,
+            child: child,
+          ),
         ),
       );
     });

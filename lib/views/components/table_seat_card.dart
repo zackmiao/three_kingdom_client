@@ -120,7 +120,7 @@ class TableSeatCard extends StatelessWidget {
   }
 
   /// 竖向勾玉：颜色随血量比例变化
-  Widget _hpDotsVertical() {
+  Widget _hpDotsVertical(double k) {
     final ratio = maxHp <= 0 ? 0.0 : hp / maxHp;
     final color = ratio > 0.6
         ? const Color(0xFF66BB6A)
@@ -131,9 +131,9 @@ class TableSeatCard extends StatelessWidget {
       children: List.generate(count, (i) {
         final filled = i < hp;
         return Container(
-          width: 8,
-          height: 8,
-          margin: const EdgeInsets.symmetric(vertical: 1),
+          width: 8 * k,
+          height: 8 * k,
+          margin: EdgeInsets.symmetric(vertical: 1 * k),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: filled ? color : Colors.black.withValues(alpha: 0.55),
@@ -148,10 +148,10 @@ class TableSeatCard extends StatelessWidget {
     );
   }
 
-  Widget _strip() {
+  Widget _strip(double k) {
     final force = guessForce(hero.replaceFirst('谋', ''));
     return Container(
-      width: 24,
+      width: 24 * k,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -167,16 +167,18 @@ class TableSeatCard extends StatelessWidget {
         children: [
           // 势力标
           Container(
-            width: 24,
-            height: 22,
+            width: 24 * k,
+            height: 22 * k,
             color: HeroModel.forceColor(force),
             child: Center(
               child: Text(force,
-                  style: const TextStyle(
-                      fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      fontSize: 12 * k,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold)),
             ),
           ),
-          const SizedBox(height: 3),
+          SizedBox(height: 3 * k),
           // 竖排武将名
           Expanded(
             child: Column(
@@ -185,8 +187,8 @@ class TableSeatCard extends StatelessWidget {
                   .split('')
                   .take(4)
                   .map((ch) => Text(ch,
-                      style: const TextStyle(
-                          fontSize: 11,
+                      style: TextStyle(
+                          fontSize: 11 * k,
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           height: 1.15)))
@@ -195,8 +197,8 @@ class TableSeatCard extends StatelessWidget {
           ),
           // 竖向勾玉
           Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _hpDotsVertical(),
+            padding: EdgeInsets.only(bottom: 4 * k),
+            child: _hpDotsVertical(k),
           ),
         ],
       ),
@@ -223,9 +225,20 @@ class TableSeatCard extends StatelessWidget {
         .toList();
     final seatChar =
         seatNo >= 1 && seatNo <= _cnNums.length ? _cnNums[seatNo - 1] : '$seatNo';
-    final cardWidth = compact ? 136.0 : w;
+    final cardWidth = compact ? 180.0 : w;
     // 紧凑模式需要给底部“思考中”提示留出空间，避免父级高度不足时溢出
-    final cardHeight = compact ? 162.0 : cardH;
+    final cardHeight = compact ? 240.0 : cardH;
+    // 内部元素缩放系数：主视角（compact）放大，让名字/勾玉/角标清晰可读
+    final double k = compact ? 1.16 : 1.0;
+    final double stripW = 24 * k;
+    final double diamondSize = 20 * k;
+    final double diamondLeft = stripW + 3;
+    final double diamondBottom = 22 * k;
+    // 名字左边界必须让开左下角的菱形手牌数，否则会被压住开头几个字
+    final double nameLeft = diamondLeft + diamondSize + 4;
+    final double statusLeft = stripW + 2;
+    final double distBottom = diamondBottom + diamondSize + 4;
+    final double armorBottom = distBottom + 15 * k;
 
     final card = DragTarget<CardModel>(
       onWillAcceptWithDetails: (details) => !isMe && alive,
@@ -265,7 +278,7 @@ class TableSeatCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _strip(),
+                    _strip(k),
                     Expanded(
                       child: Stack(
                         fit: StackFit.expand,
@@ -291,15 +304,15 @@ class TableSeatCard extends StatelessWidget {
                             ),
                           ),
                           Positioned(
-                            left: 4,
-                            right: 4,
-                            bottom: 22,
+                            left: nameLeft,
+                            right: 6,
+                            bottom: diamondBottom,
                             child: Text(
                               name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 11 * k,
                                 fontWeight: FontWeight.bold,
                                 color: isMe ? const Color(0xFF7FE7FF) : Colors.white,
                                 shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
@@ -313,11 +326,11 @@ class TableSeatCard extends StatelessWidget {
                 ),
                 // 身份角标（右上）
                 Positioned(
-                  right: 3,
-                  top: 3,
+                  right: 3 * k,
+                  top: 3 * k,
                   child: Container(
-                    width: 20,
-                    height: 20,
+                    width: 20 * k,
+                    height: 20 * k,
                     decoration: BoxDecoration(
                       color: _roleColor().withValues(alpha: 0.92),
                       borderRadius: BorderRadius.circular(4),
@@ -325,8 +338,8 @@ class TableSeatCard extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(_roleChar(),
-                          style: const TextStyle(
-                              fontSize: 11,
+                          style: TextStyle(
+                              fontSize: 11 * k,
                               color: Colors.black87,
                               fontWeight: FontWeight.w900)),
                     ),
@@ -334,13 +347,13 @@ class TableSeatCard extends StatelessWidget {
                 ),
                 // 手牌数菱形（左下）
                 Positioned(
-                  left: 27,
-                  bottom: 22,
+                  left: diamondLeft,
+                  bottom: diamondBottom,
                   child: Transform.rotate(
                     angle: math.pi / 4,
                     child: Container(
-                      width: 20,
-                      height: 20,
+                      width: diamondSize,
+                      height: diamondSize,
                       decoration: BoxDecoration(
                         color: const Color(0xE6B8860B),
                         border: Border.all(color: const Color(0xFFFFE082), width: 0.8),
@@ -350,8 +363,8 @@ class TableSeatCard extends StatelessWidget {
                         angle: -math.pi / 4,
                         child: Center(
                           child: Text('$handCount',
-                              style: const TextStyle(
-                                  fontSize: 10,
+                              style: TextStyle(
+                                  fontSize: 10 * k,
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold)),
                         ),
@@ -362,21 +375,21 @@ class TableSeatCard extends StatelessWidget {
                 // 状态角标
                 if (distance > 1 && !isMe)
                   Positioned(
-                    left: 27,
-                    bottom: 46,
+                    left: statusLeft,
+                    bottom: distBottom,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
                       decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(3)),
                       child: Text('距$distance',
-                          style: const TextStyle(fontSize: 7.5, color: Colors.white70)),
+                          style: TextStyle(fontSize: 7.5 * k, color: Colors.white70)),
                     ),
                   ),
                 if (armor > 0)
                   Positioned(
-                    left: 27,
-                    bottom: 60,
+                    left: statusLeft,
+                    bottom: armorBottom,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
                       decoration: BoxDecoration(
@@ -385,35 +398,35 @@ class TableSeatCard extends StatelessWidget {
                         border: Border.all(color: Colors.lightBlueAccent, width: 0.7),
                       ),
                       child: Text('盾$armor',
-                          style: const TextStyle(
-                              fontSize: 7.5,
+                          style: TextStyle(
+                              fontSize: 7.5 * k,
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
                     ),
                   ),
                 if (isChained)
-                  const Positioned(
+                  Positioned(
                     right: 4,
-                    top: 27,
-                    child: Icon(Icons.link, size: 12, color: Color(0xFFFF7043)),
+                    top: 27 * k,
+                    child: Icon(Icons.link, size: 12 * k, color: const Color(0xFFFF7043)),
                   ),
                 if (flipped)
                   Positioned(
                     right: 4,
-                    top: 44,
+                    top: 44 * k,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
                       decoration: BoxDecoration(
                         color: const Color(0xFF4A148C),
                         borderRadius: BorderRadius.circular(3),
                       ),
-                      child: const Text('背面',
-                          style: TextStyle(fontSize: 7, color: Colors.white)),
+                      child: Text('背面',
+                          style: TextStyle(fontSize: 7 * k, color: Colors.white)),
                     ),
                   ),
                 if (displayMarks.isNotEmpty)
                   Positioned(
-                    left: 26,
+                    left: statusLeft,
                     top: 4,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
@@ -422,30 +435,30 @@ class TableSeatCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(3),
                       ),
                       child: Text(displayMarks.join(' '),
-                          style: const TextStyle(fontSize: 7, color: Colors.white)),
+                          style: TextStyle(fontSize: 7 * k, color: Colors.white)),
                     ),
                   ),
                 // 底部条：装备 + 座次
                 Positioned(
-                  left: 24,
+                  left: stripW,
                   right: 0,
                   bottom: 0,
                   child: Container(
-                    height: 20,
+                    height: 20 * k,
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     color: Colors.black.withValues(alpha: 0.72),
                     child: Row(
                       children: [
                         Expanded(
                           child: DefaultTextStyle(
-                            style: const TextStyle(fontSize: 8, color: Colors.white70),
+                            style: TextStyle(fontSize: 8 * k, color: Colors.white70),
                             child: _equipLabel(),
                           ),
                         ),
                         Text(seatChar,
-                            style: const TextStyle(
-                                fontSize: 9,
-                                color: Color(0xFFFFD54F),
+                            style: TextStyle(
+                                fontSize: 9 * k,
+                                color: const Color(0xFFFFD54F),
                                 fontWeight: FontWeight.bold)),
                       ],
                     ),
@@ -454,8 +467,8 @@ class TableSeatCard extends StatelessWidget {
                 // 判定区
                 if (judges.isNotEmpty)
                   Positioned(
-                    left: 26,
-                    top: 22,
+                    left: statusLeft,
+                    top: 22 * k,
                     child: Row(
                       children: judges
                           .take(3)

@@ -37,7 +37,7 @@ void main() {
   testWidgets('CardFace 渲染牌面时不会触发 errorBuilder', (tester) async {
     var fellBack = false;
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Center(
           child: CardFace(
             typeKey: 'SHA',
