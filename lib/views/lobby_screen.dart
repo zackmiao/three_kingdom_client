@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
+import 'hero_book_screen.dart';
 import 'room_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -20,6 +21,25 @@ class _LobbyScreenState extends State<LobbyScreen> {
   final TextEditingController _roomNameController = TextEditingController(text: "三国杀标准房间");
   final TextEditingController _joinRoomIdController = TextEditingController(text: "ROOM_888");
   final TextEditingController _maxPlayersController = TextEditingController(text: "4");
+
+  /// 选择的游戏模式：IDENTITY / TEAM_2V2 / LANDLORD
+  String _mode = "IDENTITY";
+
+  static const List<_ModeInfo> _modes = [
+    _ModeInfo('IDENTITY', '身份场', '主公 / 忠臣 / 反贼 / 内奸', '2~8 人', Colors.amber),
+    _ModeInfo('TEAM_2V2', '2v2', '暖方 2 人 对 冷方 2 人', '4 人', Colors.tealAccent),
+    _ModeInfo('LANDLORD', '斗地主', '地主 1 人 对 农民 2 人', '3 人', Colors.deepOrangeAccent),
+  ];
+
+  _ModeInfo get _curMode => _modes.firstWhere((m) => m.key == _mode, orElse: () => _modes.first);
+
+  void _pickMode(String key) {
+    setState(() {
+      _mode = key;
+      if (key == 'TEAM_2V2') _maxPlayersController.text = "4";
+      if (key == 'LANDLORD') _maxPlayersController.text = "3";
+    });
+  }
 
   StreamSubscription<Packet>? _subscription;
   StreamSubscription<String>? _disconnectSub;
@@ -98,7 +118,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     _socket.sendPacket(Packet(
       command: Command.CREATE_ROOM,
       senderId: widget.playerId,
-      data: "$name,$maxPlayers",
+      data: "$name,$maxPlayers,$_mode",
     ));
     await Future.delayed(const Duration(milliseconds: 600));
     if (mounted) setState(() => _busy = false);
@@ -123,6 +143,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
         backgroundColor: const Color(0xFF24252E),
         automaticallyImplyLeading: false,
         actions: [
+          TextButton.icon(
+            onPressed: () => HeroBookScreen.show(context),
+            icon: const Icon(Icons.menu_book, color: Colors.amberAccent, size: 18),
+            label: const Text('武将图鉴',
+                style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             child: Row(children: [
@@ -159,9 +185,25 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text('身份场：主公 / 忠臣 / 反贼 / 内奸，支持 2~8 人（可加 AI 补位）',
-                    style: TextStyle(color: Colors.white38, fontSize: 12)),
-                const SizedBox(height: 20),
+                Text('${_curMode.title}：${_curMode.desc}（${_curMode.seatLabel}，可加 AI 补位）',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    for (final m in _modes)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _ModeCard(
+                            info: m,
+                            selected: _mode == m.key,
+                            onTap: () => _pickMode(m.key),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
                 Row(
                   children: [
                     Expanded(
@@ -183,6 +225,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       width: 90,
                       child: TextField(
                         controller: _maxPlayersController,
+                        enabled: _mode == 'IDENTITY',
                         keyboardType: TextInputType.number,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
@@ -258,6 +301,60 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 大厅里的模式元数据。
+class _ModeInfo {
+  final String key;
+  final String title;
+  final String desc;
+  final String seatLabel;
+  final Color color;
+
+  const _ModeInfo(this.key, this.title, this.desc, this.seatLabel, this.color);
+}
+
+class _ModeCard extends StatelessWidget {
+  final _ModeInfo info;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeCard({required this.info, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? info.color.withValues(alpha: 0.18) : Colors.black26,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: selected ? info.color : Colors.white24, width: selected ? 2 : 1),
+          boxShadow: [
+            if (selected) BoxShadow(color: info.color.withValues(alpha: 0.35), blurRadius: 12),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(selected ? Icons.check_circle : Icons.circle_outlined,
+                color: selected ? info.color : Colors.white30, size: 18),
+            const SizedBox(height: 4),
+            Text(info.title,
+                style: TextStyle(
+                    color: selected ? Colors.white : Colors.white60,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            Text(info.seatLabel,
+                style: TextStyle(color: selected ? info.color : Colors.white38, fontSize: 10.5)),
+          ],
         ),
       ),
     );

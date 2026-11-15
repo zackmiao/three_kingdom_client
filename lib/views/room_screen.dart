@@ -6,8 +6,10 @@ import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
 import 'components/hero_portrait.dart';
+import 'dialogs/hero_draw_dialog.dart';
 import 'dialogs/hero_select_dialog.dart';
 import 'game_room_screen.dart';
+import 'hero_book_screen.dart';
 import 'lobby_screen.dart';
 
 class RoomScreen extends StatefulWidget {
@@ -35,9 +37,20 @@ class _RoomScreenState extends State<RoomScreen> {
   int _maxPlayers = 4;
   String _hostId = "";
   String _state = "WAITING";
+  String _mode = "IDENTITY";
   List<RoomMemberModel> _members = [];
   List<HeroModel> _heroes = HeroCatalog.instance.heroes;
+  final ValueNotifier<List<HeroModel>> _candidates = ValueNotifier<List<HeroModel>>(const []);
+  bool _autoDrawShown = false;
   bool _navigating = false;
+
+  static const Map<String, String> _modeLabels = {
+    'IDENTITY': '身份场',
+    'TEAM_2V2': '2v2',
+    'LANDLORD': '斗地主',
+  };
+
+  String get _modeLabel => _modeLabels[_mode] ?? '身份场';
 
   @override
   void initState() {
@@ -54,6 +67,15 @@ class _RoomScreenState extends State<RoomScreen> {
       } else if (packet.command == Command.HERO_LIST) {
         HeroCatalog.instance.update(packet.data);
         setState(() => _heroes = HeroCatalog.instance.heroes);
+      } else if (packet.command == Command.HERO_CANDIDATES) {
+        _candidates.value = HeroModel.parseAll(packet.data);
+        // 进房后第一次拿到候选，自动弹出抽将界面（每局只自动弹一次）
+        if (!_autoDrawShown && _candidates.value.isNotEmpty) {
+          _autoDrawShown = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _showDrawDialog();
+          });
+        }
       } else if (packet.command == Command.LEAVE_ROOM) {
         _backToLobby();
       }
@@ -71,6 +93,7 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void dispose() {
     _subscription?.cancel();
+    _candidates.dispose();
     super.dispose();
   }
 
@@ -83,6 +106,9 @@ class _RoomScreenState extends State<RoomScreen> {
     _maxPlayers = int.tryParse(parts[2]) ?? 4;
     _hostId = parts[3];
     _state = parts[4];
+    if (parts.length > 6 && parts[6].trim().isNotEmpty) {
+      _mode = parts[6].trim();
+    }
 
     final memRaw = parts.length > 5 ? parts[5].trim() : "";
     _members = memRaw.isEmpty
@@ -145,6 +171,40 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  /// 开局抽将：从服务端抽到的候选里挑一位出战，可重新抽取。
+  void _showDrawDialog() {
+    final myHero = _members
+        .firstWhere((m) => m.id == widget.playerId,
+            orElse: () => RoomMemberModel(
+                id: widget.playerId,
+                name: widget.playerName,
+                isAi: false,
+                heroName: "刘备",
+                isReady: false))
+        .heroName;
+
+    if (_candidates.value.isEmpty) {
+      // 还没收到候选（旧服务端或刚进房），退化成完整网格选将
+      _showChangeHeroDialog();
+      return;
+    }
+
+    HeroDrawDialog.show(
+      context,
+      candidates: _candidates,
+      currentHero: myHero,
+      onPick: (hero) => _socket.sendPacket(
+          Packet(command: Command.SELECT_HERO, senderId: widget.playerId, data: hero.name)),
+      onReroll: () => _socket.sendPacket(
+          Packet(command: Command.REROLL_HERO, senderId: widget.playerId, data: widget.playerId)),
+    );
+  }
+
+  void _setMode(String modeKey) {
+    _socket.sendPacket(
+        Packet(command: Command.SET_MODE, senderId: widget.playerId, data: modeKey));
+  }
+
   void _leaveRoom() {
     _socket.sendPacket(Packet(command: Command.LEAVE_ROOM, senderId: widget.playerId, data: "LEAVE"));
     _backToLobby();
@@ -170,7 +230,7 @@ class _RoomScreenState extends State<RoomScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF181920),
       appBar: AppBar(
-        title: Text('$_roomName ($_roomId)  [${_members.length}/$_maxPlayers 人]'),
+        title: Text('$_roomName ($_roomId)  [$_modeLabel · ${_members.length}/$_maxPlayers 人]'),
         backgroundColor: const Color(0xFF24252E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.redAccent),
@@ -308,20 +368,51 @@ class _RoomScreenState extends State<RoomScreen> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             color: const Color(0xFF24252E),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.teal[800],
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-                  icon: const Icon(Icons.switch_account, color: Colors.white),
-                  label: Text('更换武将 (当前: ${myMember.heroName})',
+                  icon: const Icon(Icons.style, color: Colors.white),
+                  label: Text('抽取武将 (当前: ${myMember.heroName})',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  onPressed: () => _showChangeHeroDialog(),
+                  onPressed: _showDrawDialog,
                 ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12)),
+                  icon: const Icon(Icons.menu_book, color: Colors.white70, size: 18),
+                  label: const Text('武将图鉴', style: TextStyle(color: Colors.white70)),
+                  onPressed: () => HeroBookScreen.show(context),
+                ),
+                const SizedBox(width: 16),
+                if (isHost)
+                  Flexible(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          const Text('模式：',
+                              style: TextStyle(color: Colors.white38, fontSize: 12)),
+                          for (final entry in _modeLabels.entries)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _ModeChip(
+                                label: entry.value,
+                                selected: _mode == entry.key,
+                                onTap: () => _setMode(entry.key),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const Spacer(),
                 Row(
                   children: [
                     if (!isHost)
@@ -357,6 +448,36 @@ class _RoomScreenState extends State<RoomScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 房间底栏的模式选择小按钮（仅房主可见）。
+class _ModeChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeChip({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? Colors.amber[800] : Colors.white10,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: selected ? Colors.amberAccent : Colors.white24),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: selected ? Colors.white : Colors.white60,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
       ),
     );
   }

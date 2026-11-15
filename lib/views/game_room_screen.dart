@@ -20,6 +20,7 @@ import 'components/target_arrow_painter.dart';
 import 'dialogs/choice_prompt_dialog.dart';
 import 'dialogs/huogong_dialog.dart';
 import 'dialogs/judge_result_dialog.dart';
+import 'dialogs/lucky_card_dialog.dart';
 import 'dialogs/pindian_dialog.dart';
 import 'dialogs/target_zone_dialog.dart';
 import 'dialogs/wugu_dialog.dart';
@@ -51,6 +52,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   String _deckInfo = "0/0";
   String _myRole = "LOYAL";
   String _myRoleCn = "忠臣";
+  /// 游戏模式：IDENTITY / TEAM_2V2 / LANDLORD（服务端 SYNC_STATE 的 MODE 字段）
+  String _gameMode = "IDENTITY";
   int _roundNo = 1;
   int _timeoutSeconds = 25;
   int _maxHandCards = 0;
@@ -165,6 +168,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       case Command.ASK_WU_GU:
         WuGuDialog.show(context, packet.data, _sendResponse);
         break;
+      case Command.ASK_LUCKY:
+        _handleLuckyPrompt(packet.data);
+        break;
       case Command.SHOW_JUDGE_RESULT:
         JudgeResultDialog.show(context, packet.data);
         break;
@@ -220,6 +226,38 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       default:
         break;
     }
+  }
+
+  /// 手气卡询问：服务端 payload 形如 `手气卡剩余 4 张|序号#类型#花色#点数#ID#中文名#NONE;...`
+  /// 回 "1" = 换一副起手牌，"0" = 就用这手牌。
+  Future<void> _handleLuckyPrompt(String data) async {
+    final sep = data.indexOf('|');
+    final head = sep >= 0 ? data.substring(0, sep) : data;
+    final tail = sep >= 0 ? data.substring(sep + 1) : '';
+
+    int remaining = 0;
+    final m = RegExp(r'(\d+)').firstMatch(head);
+    if (m != null) remaining = int.tryParse(m.group(1)!) ?? 0;
+
+    final hand = tail
+        .split(';')
+        .where((t) => t.trim().isNotEmpty)
+        .map((t) => CardModel.parse(t))
+        .whereType<CardModel>()
+        .toList();
+
+    setState(() {
+      _askPrompt = "手气卡：剩余 $remaining 次换牌机会，不满意可以再换一副起手牌";
+      _isMyTurn = false;
+      _isResponding = false;
+      _selectedIndices.clear();
+      _selectedTargetIds.clear();
+    });
+
+    final ans = await LuckyCardDialog.show(context, remaining: remaining, hand: hand);
+    if (!mounted) return;
+    setState(() => _askPrompt = "");
+    _sendResponse(ans ?? '0');
   }
 
   /// 结构化出牌广播（服务端 CARD_PLAYED）：
@@ -669,6 +707,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (part.startsWith('PHASE:')) _currentPhaseName = part.substring(6);
       if (part.startsWith('ROLE:')) _myRole = part.substring(5);
       if (part.startsWith('ROLECN:')) _myRoleCn = part.substring(7);
+      if (part.startsWith('MODE:')) _gameMode = part.substring(5);
       if (part.startsWith('ALIVE:')) _aliveCount = int.tryParse(part.substring(6)) ?? 1;
       if (part.startsWith('ROUND:')) _roundNo = int.tryParse(part.substring(6)) ?? 1;
       if (part.startsWith('TIMEOUT:')) _timeoutSeconds = int.tryParse(part.substring(8)) ?? 25;
@@ -1149,6 +1188,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   Widget _buildIdentityPanel() {
     int main = 0, loyal = 0, rebel = 0, traitor = 0;
+    int warm = 0, cold = 0, lord = 0, farmer = 0;
     void count(String role) {
       switch (role) {
         case 'MAIN':
@@ -1162,6 +1202,18 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           break;
         case 'TRAITOR':
           traitor++;
+          break;
+        case 'WARM':
+          warm++;
+          break;
+        case 'COLD':
+          cold++;
+          break;
+        case 'LORD':
+          lord++;
+          break;
+        case 'FARMER':
+          farmer++;
           break;
       }
     }
@@ -1183,6 +1235,30 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
         );
 
+    late final List<Widget> pills;
+    late final String hint;
+    if (_gameMode == 'TEAM_2V2') {
+      pills = [
+        pill('暖方', warm, const Color(0xFFFFC94D)),
+        pill('冷方', cold, const Color(0xFF79C7FF)),
+      ];
+      hint = '一方全员阵亡则另一方获胜';
+    } else if (_gameMode == 'LANDLORD') {
+      pills = [
+        pill('地主', lord, const Color(0xFFFFC94D)),
+        pill('农民', farmer, const Color(0xFF79C7FF)),
+      ];
+      hint = '地主阵亡则农民获胜';
+    } else {
+      pills = [
+        pill('主', main, const Color(0xFFFFC94D)),
+        pill('忠', loyal, const Color(0xFF79C7FF)),
+        pill('反', rebel, const Color(0xFFFF6B6B)),
+        pill('内', traitor, const Color(0xFFC08BFF)),
+      ];
+      hint = '反贼与内奸全灭则主公方获胜';
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
@@ -1194,15 +1270,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(children: [
-            pill('主', main, const Color(0xFFFFC94D)),
-            pill('忠', loyal, const Color(0xFF79C7FF)),
-            pill('反', rebel, const Color(0xFFFF6B6B)),
-            pill('内', traitor, const Color(0xFFC08BFF)),
-          ]),
+          Row(children: pills),
           const SizedBox(height: 3),
-          const Text('反贼与内奸全灭则主公方获胜',
-              style: TextStyle(fontSize: 8.5, color: Color(0x99FFE0B2))),
+          Text(hint, style: const TextStyle(fontSize: 8.5, color: Color(0x99FFE0B2))),
         ],
       ),
     );

@@ -73,8 +73,12 @@ class TableSeatCard extends StatelessWidget {
   Color _roleColor() {
     switch (role) {
       case "MAIN":
+      case "WARM":
+      case "LORD":
         return const Color(0xFFFFC94D);
       case "LOYAL":
+      case "COLD":
+      case "FARMER":
         return const Color(0xFF79C7FF);
       case "REBEL":
         return const Color(0xFFFF6B6B);
@@ -95,6 +99,14 @@ class TableSeatCard extends StatelessWidget {
         return '反';
       case "TRAITOR":
         return '内';
+      case "WARM":
+        return '暖';
+      case "COLD":
+        return '冷';
+      case "LORD":
+        return '地';
+      case "FARMER":
+        return '农';
       default:
         return roleLabel.length > 1 ? '？' : roleLabel;
     }

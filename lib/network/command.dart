@@ -15,6 +15,12 @@ enum Command {
     ADD_AI,
     REMOVE_AI,
     START_GAME,
+    // 房间玩法模式：IDENTITY / TEAM_2V2 / LANDLORD
+    SET_MODE,
+    // 抽将候选：`;` 分隔的武将序列化串（最多 3 名）
+    HERO_CANDIDATES,
+    // 重新抽取候选武将
+    REROLL_HERO,
 
     // 终局结算
     GAME_OVER,
@@ -27,7 +33,9 @@ enum Command {
     RESPOND_CARD,
     SHOW_JUDGE_RESULT,
     ASK_TARGET_ZONE,
-    ASK_WU_GU
+    ASK_WU_GU,
+    // 手气卡：`剩余次数|idx#typeKey#suitKey#point#id#name#NONE;...`，回 RESPOND_CARD "1"/"0"
+    ASK_LUCKY
 }
 
 extension CommandExtension on Command {
