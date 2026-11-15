@@ -11,6 +11,7 @@ import '../network/packet.dart';
 import '../network/socket_service.dart';
 import 'components/action_prompt_bar.dart';
 import 'components/battle_log_view.dart';
+import 'components/card_face.dart';
 import 'components/center_stage_view.dart';
 import 'components/game_background.dart';
 import 'components/hand_card_area.dart';
@@ -24,6 +25,7 @@ import 'dialogs/target_zone_dialog.dart';
 import 'dialogs/wugu_dialog.dart';
 import 'lobby_screen.dart';
 import 'room_screen.dart';
+import 'ui_scale.dart';
 
 class GameRoomScreen extends StatefulWidget {
   final String playerId;
@@ -116,6 +118,18 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   bool _gameOverShown = false;
   bool _leaving = false;
 
+  // ==== 牌滑动动画 ====
+  final GlobalKey _stageKey = GlobalKey();
+  final GlobalKey _deckKey = GlobalKey();
+  final GlobalKey _handKey = GlobalKey();
+  final GlobalKey _equipKey = GlobalKey();
+  final List<_FlyingCard> _flying = [];
+  int _flyingSeq = 0;
+  bool _hasSynced = false;
+  DateTime _lastCardPlayedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  PlayedCard? _lastTextPlayed;
+  DateTime _lastTextPlayedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   @override
   void initState() {
     super.initState();
@@ -153,6 +167,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         break;
       case Command.SHOW_JUDGE_RESULT:
         JudgeResultDialog.show(context, packet.data);
+        break;
+      case Command.CARD_PLAYED:
+        _handleCardPlayed(packet.data);
         break;
       case Command.BROADCAST_MSG:
         _parseBroadcastLog(packet.data);
@@ -205,8 +222,172 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
   }
 
+  /// 结构化出牌广播（服务端 CARD_PLAYED）：
+  /// sourceId|sourceName|typeKey|suitKey|point|cardName|targetId:targetName,...
+  /// 有了它，中央展示的就是「真正打出的那张牌」，不需要再从中文播报里猜。
+  void _handleCardPlayed(String data) {
+    final parts = data.split('|');
+    if (parts.length < 6) return;
+    final sourceId = parts[0].trim();
+    final sourceName = parts[1].trim();
+    final typeKeyRaw = parts[2].trim();
+    final suitKey = parts[3].trim();
+    final point = parts[4].trim();
+    final cardName = parts[5].trim();
+
+    final targetNames = <String>[];
+    final targetIds = <String>[];
+    if (parts.length > 6 && parts[6].trim().isNotEmpty) {
+      for (final seg in parts[6].split(',')) {
+        final kv = seg.trim().split(':');
+        if (kv.isEmpty || kv[0].trim().isEmpty) continue;
+        targetIds.add(kv[0].trim());
+        if (kv.length > 1) targetNames.add(kv[1].trim());
+      }
+    }
+
+    _lastCardPlayedAt = DateTime.now();
+    final played = PlayedCard(
+      name: cardName,
+      typeKey: typeKeyRaw.isEmpty ? CardCatalog.typeKeyOfName(cardName) : typeKeyRaw,
+      sourceName: sourceName,
+      targetNames: targetNames,
+      suit: suitKey.isEmpty ? null : suitKey,
+      points: point.isEmpty ? null : point,
+    );
+
+    setState(() {
+      // 同一次出牌可能先到中文播报、后到结构化广播：把猜出来的那张撤掉，避免中央重复
+      final guess = _lastTextPlayed;
+      if (guess != null &&
+          DateTime.now().difference(_lastTextPlayedAt).inMilliseconds < 900 &&
+          guess.sourceName == sourceName) {
+        _shownCards.remove(guess);
+        _lastTextPlayed = null;
+      }
+      _activeCardSourceId = sourceId.isEmpty ? _findPlayerIdByName(sourceName) : sourceId;
+      _activeCardTargetNames = List<String>.from(targetNames);
+      _activeCardTargetIds = List<String>.from(targetIds);
+      _shownCards.add(played);
+      while (_shownCards.length > 4) {
+        _shownCards.removeAt(0);
+      }
+    });
+    Timer(const Duration(milliseconds: 3400), () {
+      if (mounted) setState(() => _shownCards.remove(played));
+    });
+    _cardDisplayTimer?.cancel();
+    _cardDisplayTimer = Timer(const Duration(milliseconds: 3200), () {
+      if (mounted) {
+        setState(() {
+          _activeCardTargetNames.clear();
+          _activeCardSourceId = null;
+          _activeCardTargetIds.clear();
+        });
+      }
+    });
+  }
+
+  // ==================== 牌滑动动画 ====================
+
+  /// 取某个控件在战局舞台坐标系里的中心点（ScaledStage 内部空间）
+  Offset? _stageCenterOf(GlobalKey key) {
+    final stageBox = _stageKey.currentContext?.findRenderObject() as RenderBox?;
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    if (stageBox == null || box == null || !stageBox.hasSize || !box.hasSize) return null;
+    return box.localToGlobal(box.size.center(Offset.zero), ancestor: stageBox);
+  }
+
+  /// 从 fromPos 飞向 toPos 的一张牌（typeKey 为 null 时画牌背，用于摸牌）
+  void _spawnFlight({
+    Offset? fromPos,
+    Offset? toPos,
+    required String dest,
+    String? typeKey,
+    String name = '',
+    String suitSymbol = '',
+    String points = '',
+    bool isRed = true,
+    double width = 76,
+    double height = 107,
+    int delayMs = 0,
+    double arc = 30,
+  }) {
+    final from = fromPos ?? _stageCenterOf(_deckKey);
+    Offset? to = toPos;
+    if (to == null) {
+      if (dest == 'hand') to = _stageCenterOf(_handKey);
+      if (dest == 'equip') to = _stageCenterOf(_equipKey);
+      if (dest == 'center') to = _stageCenterOf(_stageKey);
+    }
+    if (from == null || to == null) return;
+    final f = _FlyingCard(
+      seq: _flyingSeq++,
+      from: from,
+      to: to,
+      typeKey: typeKey,
+      name: name,
+      suitSymbol: suitSymbol,
+      points: points,
+      isRed: isRed,
+      width: width,
+      height: height,
+      delayMs: delayMs,
+      arc: arc,
+    );
+    setState(() => _flying.add(f));
+  }
+
+  void _removeFlight(_FlyingCard f) {
+    if (!mounted) return;
+    setState(() => _flying.remove(f));
+  }
+
+  Widget _buildFlight(_FlyingCard f) {
+    const moveMs = 460.0;
+    final total = moveMs + f.delayMs;
+    final card = f.typeKey == null
+        ? _FlightCardBack(width: f.width, height: f.height)
+        : CardFace(
+            typeKey: f.typeKey!,
+            name: f.name,
+            suitSymbol: f.suitSymbol,
+            points: f.points,
+            isRed: f.isRed,
+            index: 0,
+            showIndex: false,
+            width: f.width,
+            height: f.height,
+          );
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(f.seq),
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: total.round()),
+      curve: Curves.linear,
+      onEnd: () => _removeFlight(f),
+      builder: (_, raw, child) {
+        final p = ((raw * total - f.delayMs) / moveMs).clamp(0.0, 1.0);
+        final eased = Curves.easeOutCubic.transform(p);
+        final pos = Offset.lerp(f.from, f.to, eased)!;
+        final lift = -math.sin(eased * math.pi) * f.arc;
+        final scale = 1.15 - 0.35 * eased;
+        final opacity = p < 0.88 ? 1.0 : (1.0 - (p - 0.88) / 0.12).clamp(0.0, 1.0);
+        return Positioned(
+          left: pos.dx - f.width / 2,
+          top: pos.dy - f.height / 2 + lift,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(scale: scale, child: child),
+            ),
+          ),
+        );
+      },
+      child: card,
+    );
+  }
+
   void _startCountdown() {
-    _countdownTimer?.cancel();
     // 无懈可击是并发询问，服务端只等 5 秒，倒计时要与之一致
     final total = (_askPrompt != null && _askPrompt!.contains("无懈可击")) ? 5 : _timeoutSeconds;
     setState(() {
@@ -369,6 +550,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           suit: playedSuit,
           points: playedPoints,
         );
+        // 已经收到服务端的结构化 CARD_PLAYED（含真实牌名/花色/点数）时，不再用播报文本猜牌
+        if (DateTime.now().difference(_lastCardPlayedAt).inMilliseconds < 800) {
+          return;
+        }
+        _lastTextPlayed = playedCard;
+        _lastTextPlayedAt = DateTime.now();
         setState(() {
           _activeCardTargetNames = tgNames;
           _activeCardSourceId = _findPlayerIdByName(srcName);
@@ -406,6 +593,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   void _parseState(String raw) {
+    final prevHandCount = _handCards.length;
+    final prevWeapon = _weapon;
+    final prevArmor = _armor;
+    final prevDefHorse = _defHorse;
+    final prevOffHorse = _offHorse;
     final parts = raw.split('|');
     for (String part in parts) {
       if (part.startsWith('武将:')) _heroName = part.substring(3);
@@ -494,6 +686,51 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       }
     }
     setState(() {});
+
+    // 摸牌 / 装备的滑动动画（首帧同步不播，避免开局一堆牌乱飞）
+    if (_hasSynced) {
+      final gained = _handCards.length - prevHandCount;
+      if (gained > 0) {
+        final n = math.min(gained, 5);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          for (int i = 0; i < n; i++) {
+            _spawnFlight(dest: 'hand', delayMs: i * 65, arc: 34);
+          }
+        });
+      }
+      final equipNow = <String, String>{
+        'WEAPON': _weapon,
+        'ARMOR': _armor,
+        'DEF': _defHorse,
+        'OFF': _offHorse,
+      };
+      final equipPrev = <String, String>{
+        'WEAPON': prevWeapon,
+        'ARMOR': prevArmor,
+        'DEF': prevDefHorse,
+        'OFF': prevOffHorse,
+      };
+      equipNow.forEach((slot, name) {
+        if (name != '无' && name != equipPrev[slot]) {
+          final key = CardCatalog.typeKeyOfName(name);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _spawnFlight(
+              dest: 'equip',
+              fromPos: _stageCenterOf(_stageKey),
+              typeKey: key,
+              name: name,
+              delayMs: 60,
+              arc: 18,
+              width: 68,
+              height: 96,
+            );
+          });
+        }
+      });
+    }
+    _hasSynced = true;
   }
 
   // ==================== 交互 ====================
@@ -883,23 +1120,27 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       key: _scaffoldKey,
       backgroundColor: const Color(0xFF0D0906),
       endDrawer: _buildLogDrawer(),
-      body: Stack(
-        children: [
-          const GameBackground(),
-          Column(
-            children: [
-              const SizedBox(height: 46),
-              Expanded(child: _buildBoard(isTargetSelecting)),
-              _buildBottomBar(hasZhangBa, hasRenDe, hasZhiHeng, hasChuHai),
-            ],
-          ),
-          // 左上：身份局势
-          Positioned(left: 12, top: 8, child: _buildIdentityPanel()),
-          // 右上：牌堆 / 轮次 / 倒计时
-          Positioned(right: 12, top: 8, child: _buildStatusCapsule(isDrunk)),
-          // 特效层
-          ..._buildEffects(),
-        ],
+      // 窗口放大（尤其全屏）时整体等比放大，键盘区/卡牌/字号一起变大
+      body: ScaledStage(
+        child: Stack(
+          key: _stageKey,
+          children: [
+            const GameBackground(),
+            Column(
+              children: [
+                const SizedBox(height: 46),
+                Expanded(child: _buildBoard(isTargetSelecting)),
+                _buildBottomBar(hasZhangBa, hasRenDe, hasZhiHeng, hasChuHai),
+              ],
+            ),
+            // 左上：身份局势
+            Positioned(left: 12, top: 8, child: _buildIdentityPanel()),
+            // 右上：牌堆 / 轮次 / 倒计时
+            Positioned(right: 12, top: 8, child: _buildStatusCapsule(isDrunk)),
+            // 特效层
+            ..._buildEffects(),
+          ],
+        ),
       ),
     );
   }
@@ -982,7 +1223,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       child: Row(children: [
         const Icon(Icons.layers, size: 13, color: Color(0xFF80DEEA)),
         const SizedBox(width: 4),
-        Text(_deckInfo, style: const TextStyle(fontSize: 11.5, color: Color(0xFF80DEEA))),
+        Text(_deckInfo, key: _deckKey, style: const TextStyle(fontSize: 11.5, color: Color(0xFF80DEEA))),
         sep(),
         const Icon(Icons.autorenew, size: 13, color: Color(0xFFFFD54F)),
         const SizedBox(width: 4),
@@ -1310,6 +1551,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                     children: [
                       Positioned.fill(
                         child: HandCardArea(
+                          key: _handKey,
                           handCards: _handCards,
                           selectedIndices: _selectedIndices,
                           maxHandCards: _maxHandCards,
@@ -1505,6 +1747,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
             ),
           // 装备缩略
           Container(
+            key: _equipKey,
             height: 22,
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Row(
@@ -1635,6 +1878,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
             ),
           ),
         ),
+      // 牌滑动层（摸牌 / 装备）
+      for (final f in _flying) _buildFlight(f),
     ];
   }
 
@@ -1658,6 +1903,69 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           ),
           Expanded(child: BattleLogView(logs: _logs, scrollController: _scrollController)),
         ],
+      ),
+    );
+  }
+}
+
+/// 一张正在飞行的牌（摸牌时 typeKey 为 null → 画牌背）
+class _FlyingCard {
+  final int seq;
+  final Offset from;
+  final Offset to;
+  final String? typeKey;
+  final String name;
+  final String suitSymbol;
+  final String points;
+  final bool isRed;
+  final double width;
+  final double height;
+  final int delayMs;
+  final double arc;
+
+  const _FlyingCard({
+    required this.seq,
+    required this.from,
+    required this.to,
+    this.typeKey,
+    this.name = '',
+    this.suitSymbol = '',
+    this.points = '',
+    this.isRed = true,
+    this.width = 76,
+    this.height = 107,
+    this.delayMs = 0,
+    this.arc = 30,
+  });
+}
+
+class _FlightCardBack extends StatelessWidget {
+  final double width;
+  final double height;
+
+  const _FlightCardBack({required this.width, required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF6D2B1F), Color(0xFF2E1108)],
+        ),
+        border: Border.all(color: const Color(0xFFFFD54F), width: 1.4),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
+      ),
+      child: Center(
+        child: Text('三',
+            style: TextStyle(
+                color: const Color(0xFFFFD54F).withValues(alpha: 0.75),
+                fontSize: height * 0.28,
+                fontWeight: FontWeight.w900)),
       ),
     );
   }

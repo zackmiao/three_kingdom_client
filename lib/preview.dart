@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 import 'package:flutter/material.dart';
 import 'models/card_model.dart';
+import 'views/ui_scale.dart';
 import 'views/components/action_prompt_bar.dart';
 import 'views/components/center_stage_view.dart';
 import 'views/components/game_background.dart';
@@ -83,7 +84,7 @@ class _BoardPreviewState extends State<BoardPreview> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0906),
-      body: Stack(children: [
+      body: ScaledStage(child: Stack(children: [
         const GameBackground(),
         Column(children: [
           const SizedBox(height: 46),
@@ -417,7 +418,7 @@ class _BoardPreviewState extends State<BoardPreview> {
             _capsule('2/4', Icons.favorite, const Color(0xFFFF6B6B)),
           ]),
         ),
-      ]),
+      ])),
     );
   }
 }

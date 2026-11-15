@@ -52,3 +52,8 @@ app.*.map.json
 /preview_window.png
 /tools_preview*.log
 
+
+# 临时截图
+/shot_*.png
+/preview_pid*.png
+

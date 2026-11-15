@@ -20,6 +20,8 @@ enum Command {
     GAME_OVER,
 
     SYNC_STATE,
+    // 结构化出牌广播：sourceId|sourceName|typeKey|suitKey|point|cardName|targetId:targetName,...
+    CARD_PLAYED,
     ASK_ACTION,
     ASK_RESPONSE,
     RESPOND_CARD,

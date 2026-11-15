@@ -74,8 +74,11 @@ class CardFace extends StatelessWidget {
         children: [
           // 牌面图（等比铺满）
           Image.asset(
-            'assets/cards/$typeKey.jpg',
+            'assets/cards/$typeKey.png',
             fit: BoxFit.fill,
+            // 牌面素材为 200×281 无损 PNG（比例 0.712，与 112×158 基本一致，不会拉伸变形）
+            filterQuality: FilterQuality.high,
+            gaplessPlayback: true,
             errorBuilder: (context, error, stack) => _drawnFallback(info, accent),
           ),
           // 左上角花色点数徽章
