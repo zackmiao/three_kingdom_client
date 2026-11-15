@@ -11,35 +11,46 @@ class WuGuDialog {
     'DIAMOND': '♦',
   };
 
-  /// 本次五谷丰登里已经被选走的牌（按顺序显示在左边，按下并标注「已选」）
-  static final List<_WuGuTaken> _taken = [];
-  static int _runId = -1;
-
-  static void resetHistory(int runId) {
-    if (runId != _runId) {
-      _runId = runId;
-      _taken.clear();
-    }
-  }
-
+  /// 服务端 payload：未被选走的牌是 `idx=描述|typeKey|suitKey|point`，
+  /// 已被别人选走的牌是 `t|玩家名|描述|typeKey|suitKey|point`
+  /// （能看到别人选了什么，只是不能再选）
   static void show(BuildContext context, String rawPool, Function(String) onPick) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
-      final items = rawPool.split(';');
+      final items = rawPool
+          .split(';')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+
+      final taken = <_WuGuTaken>[];
+      final pool = <String>[];
+      for (final it in items) {
+        if (it.startsWith('t|')) {
+          final seg = it.split('|');
+          taken.add(_WuGuTaken(
+            owner: seg.length > 1 ? seg[1].trim() : '',
+            desc: seg.length > 2 ? seg[2].trim() : '',
+            typeKey: seg.length > 3 ? seg[3].trim() : '',
+            suitKey: seg.length > 4 ? seg[4].trim() : '',
+            point: seg.length > 5 ? seg[5].trim() : '',
+          ));
+        } else {
+          pool.add(it);
+        }
+      }
 
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) {
-          final n = items.length;
+          final n = pool.length;
           // 牌阵宽度随张数放大，最多一行 5 张
           final perRow = n <= 5 ? n : 5;
-          final takenCount = _taken.length;
-          final total = perRow + takenCount;
-          final width = (total * 108 + 80).clamp(380, 860).toDouble();
+          final total = perRow + taken.length;
+          final width = (total * 108 + 80).clamp(380, 900).toDouble();
 
-          void pick(String idx, String desc, String typeKey, String suitKey, String point) {
-            _taken.add(_WuGuTaken(desc, typeKey, suitKey, point));
+          void pick(String idx) {
             Navigator.of(ctx).pop();
             onPick(idx);
           }
@@ -68,7 +79,7 @@ class WuGuDialog {
                           fontSize: 15,
                           fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  const Text('点击牌面即可收入手牌',
+                  const Text('灰掉的牌已被别人拿走，不能再选',
                       style: TextStyle(color: Colors.white38, fontSize: 10.5)),
                   const SizedBox(height: 12),
                   Wrap(
@@ -77,18 +88,19 @@ class WuGuDialog {
                     alignment: WrapAlignment.center,
                     crossAxisAlignment: WrapCrossAlignment.end,
                     children: [
-                      // 已经被别人选走的牌：按下去 + 「已选」角标
-                      for (final t in _taken)
+                      // 已经被别人选走的牌：按下去 + 变灰 + 「谁 已选」
+                      for (final t in taken)
                         _WuGuCard(
-                          typeKey: t.typeKey.isEmpty ? null : t.typeKey,
+                          typeKey: CardFace.hasArt(t.typeKey) ? t.typeKey : null,
                           desc: t.desc,
                           suitSymbol: _suitSymbol[t.suitKey] ?? '',
                           points: t.point,
                           isRed: t.suitKey == 'HEART' || t.suitKey == 'DIAMOND',
                           taken: true,
+                          takenLabel: t.owner.isEmpty ? '已选' : '${t.owner} 已选',
                           onTap: () {},
                         ),
-                      for (final it in items)
+                      for (final it in pool)
                         Builder(builder: (_) {
                           final seg = it.split('|');
                           final head = seg[0];
@@ -107,7 +119,7 @@ class WuGuDialog {
                             points: point,
                             isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
                             selectedLabel: '选择',
-                            onTap: () => pick(idx, desc, typeKey, suitKey, point),
+                            onTap: () => pick(idx),
                           );
                         }),
                     ],
@@ -123,12 +135,19 @@ class WuGuDialog {
 }
 
 class _WuGuTaken {
+  final String owner;
   final String desc;
   final String typeKey;
   final String suitKey;
   final String point;
 
-  const _WuGuTaken(this.desc, this.typeKey, this.suitKey, this.point);
+  const _WuGuTaken({
+    required this.owner,
+    required this.desc,
+    required this.typeKey,
+    required this.suitKey,
+    required this.point,
+  });
 }
 
 class _WuGuCard extends StatefulWidget {
@@ -139,6 +158,8 @@ class _WuGuCard extends StatefulWidget {
   final bool isRed;
   /// 已经被选走（按下、灰掉、不可点）
   final bool taken;
+  /// 已被选走时显示的角标文案（「谋曹操 已选」）
+  final String takenLabel;
   /// 右下角的操作标签（「选择」）
   final String? selectedLabel;
   final VoidCallback onTap;
@@ -151,6 +172,7 @@ class _WuGuCard extends StatefulWidget {
     required this.isRed,
     required this.onTap,
     this.taken = false,
+    this.takenLabel = '已选',
     this.selectedLabel,
   });
 
@@ -232,7 +254,7 @@ class _WuGuCardState extends State<_WuGuCard> {
               ),
             ),
             const SizedBox(height: 4),
-            _badge('已选', const Color(0x33FFFFFF), Colors.white38),
+            _badge(widget.takenLabel, const Color(0x33FFFFFF), Colors.white38),
           ],
         ),
       );

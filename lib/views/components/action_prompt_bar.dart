@@ -19,6 +19,10 @@ class ActionPromptBar extends StatelessWidget {
   /// 当前是否已经选中了目标席位
   final bool hasTarget;
 
+  /// 本次询问是「是否发动某个被动技能」（形如 `0 = 放弃，1 = 发动`）：
+  /// 直接用本栏的【确定】= 发动、【放弃】= 不发动，不再弹选项弹窗
+  final bool isConfirmAsk;
+
   /// 是否选中了【铁索连环】（选中后可以点「重铸」直接换牌，不必指定目标）
   final bool hasTieSuoSelected;
 
@@ -57,6 +61,7 @@ class ActionPromptBar extends StatelessWidget {
     this.totalSeconds = 25,
     this.isTargetOnly = false,
     this.hasTarget = false,
+    this.isConfirmAsk = false,
   });
 
   static void _noop() {}
@@ -107,8 +112,9 @@ class ActionPromptBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 除害 / 选目标 模式下不需要勾选手牌
-    final canConfirm = isChuHaiMode || selectedCount > 0 || (isTargetOnly && hasTarget);
+    // 除害 / 选目标 / 是否发动 模式下不需要勾选手牌
+    final canConfirm =
+        isChuHaiMode || selectedCount > 0 || (isTargetOnly && hasTarget) || isConfirmAsk;
 
     return Container(
       width: double.infinity,
@@ -230,11 +236,13 @@ class ActionPromptBar extends StatelessWidget {
                 ),
                 onPressed: canConfirm ? onConfirm : null,
                 child: Text(
-                  isChuHaiMode
-                      ? '确定发动'
-                      : (isTargetOnly
-                          ? (hasTarget ? '确定目标' : '请选目标')
-                          : (selectedCount > 0 ? '确定 ($selectedCount)' : '确定')),
+                  isConfirmAsk
+                      ? '发动'
+                      : (isChuHaiMode
+                          ? '确定发动'
+                          : (isTargetOnly
+                              ? (hasTarget ? '确定目标' : '请选目标')
+                              : (selectedCount > 0 ? '确定 ($selectedCount)' : '确定'))),
                   style: TextStyle(
                     color: canConfirm ? Colors.white : Colors.white38,
                     fontWeight: FontWeight.bold,
@@ -248,7 +256,10 @@ class ActionPromptBar extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                 ),
                 onPressed: onPass,
-                child: Text(isResponding ? 'PASS/放弃' : '结束出牌',
+                child: Text(
+                    isConfirmAsk
+                        ? '放弃'
+                        : (isResponding ? 'PASS/放弃' : '结束出牌'),
                     style: const TextStyle(color: Colors.white70, fontSize: 12)),
               ),
             ],

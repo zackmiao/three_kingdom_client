@@ -36,6 +36,12 @@ class CardFace extends StatelessWidget {
 
   static bool hasArt(String typeKey) => _known.contains(typeKey);
 
+  /// 官方牌面素材为 200×281，全项目统一按此比例渲染，避免各处传入的长宽比不一致导致变形
+  static const double cardAspect = 200 / 281;
+
+  /// 由宽度推导出的牌高
+  static double heightFor(double width) => width / cardAspect;
+
   static const Set<String> _known = {
     'SHA', 'FIRE_SHA', 'THUNDER_SHA', 'SHAN', 'TAO', 'JIU',
     'GUO_HE_CHAI_QIAO', 'SHUN_SHOU_QIAN_YANG', 'WU_ZHONG_SHENG_YOU', 'DUEL',
@@ -54,7 +60,9 @@ class CardFace extends StatelessWidget {
 
     final face = Container(
       width: width,
-      height: height,
+      // 长宽比一律由 200×281 的牌面素材推导，忽略调用方传入的 height，
+      // 避免手牌/结算区/弹窗里出现略微不同的比例（用户反馈“长宽比不对”）
+      height: heightFor(width),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         border: Border.all(

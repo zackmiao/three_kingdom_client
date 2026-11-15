@@ -102,6 +102,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   bool _isMyTurn = false;
   String? _askPrompt;
+
+  /// 本次询问是「是否发动某技能」（`0 = 放弃，1 = 发动`）：用底部提示栏的
+  /// 【发动】/【放弃】按钮直接应答，不弹选项框
+  bool _isConfirmAsk = false;
   bool _isResponding = false;
   bool _isDiscardPhase = false;
   bool _isDead = false;
@@ -172,7 +176,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         break;
       case Command.ASK_WU_GU:
         // 同一轮内的多次五谷选牌共享历史：已选走的牌按下去标记「已选」
-        WuGuDialog.resetHistory(_roundNo);
         WuGuDialog.show(context, packet.data, _sendResponse);
         break;
       case Command.ASK_LUCKY:
@@ -199,6 +202,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         setState(() {
           _isMyTurn = true;
           _isResponding = false;
+          _isConfirmAsk = false;
           _isDiscardPhase = packet.data.contains("弃牌阶段");
           _askPrompt = packet.data;
           _selectedIndices.clear();
@@ -215,6 +219,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _isResponding = true;
           _isDiscardPhase = false;
           _askPrompt = packet.data;
+          // 「0 = 放弃，1 = 发动」这类被动技能询问：走底部【发动】/【放弃】按钮
+          _isConfirmAsk = RegExp(r'0\s*=\s*放弃').hasMatch(packet.data);
           _selectedIndices.clear();
           _selectedTargetIds.clear();
           _isZhangBaMode = false;
@@ -224,7 +230,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         });
         _startCountdown();
 
-        if (ChoicePromptDialog.matches(packet.data)) {
+        if (ChoicePromptDialog.matches(packet.data) && !_isConfirmAsk) {
           ChoicePromptDialog.show(context, packet.data, (v) => _sendResponse(v));
         } else if (packet.data.contains("【火攻】请弃置")) {
           // 火攻第二步：左边展示牌、右边挑同花色弃置
@@ -1361,6 +1367,59 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               child: const Text('3 个【颂】→ 令一名角色回复 1 点体力',
                   style: TextStyle(color: Colors.white)),
             ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF343748)),
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _pickZhuiSiTarget();
+              },
+              child: const Text('4 个【颂】→ 追思一名已阵亡角色的技能',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 【颂·4个】追思：只能选择已阵亡的角色，追思其技能并失去【行殇】
+  void _pickZhuiSiTarget() {
+    final dead = _opponents.where((o) => !o.alive).toList();
+    if (dead.isEmpty) {
+      _showToast('【追思】当前没有已阵亡的角色可以追思');
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF23242E),
+        title: const Text('【追思】选择一名已阵亡的角色',
+            style: TextStyle(
+                color: Colors.amberAccent,
+                fontSize: 15,
+                fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in dead)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF343748)),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _sendResponse('SONG:4:${o.id}');
+                    },
+                    child: Text(
+                        '${o.hero.isNotEmpty ? o.hero : o.name}（已阵亡）',
+                        style: const TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -2014,7 +2073,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               totalSeconds: _countdownTotal,
               isTargetOnly: _isTargetOnlyPrompt,
               hasTarget: _selectedTargetIds.isNotEmpty,
-              onConfirm: _onConfirmAction,
+              isConfirmAsk: _isConfirmAsk,
+              onConfirm: _isConfirmAsk
+                  ? () => _sendResponse('1')
+                  : _onConfirmAction,
               onCancelSelection: () {
                 setState(() {
                   _selectedIndices.clear();
@@ -2069,7 +2131,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                   _selectedTargetIds.clear();
                 });
               },
-              onPass: () => _sendResponse('PASS'),
+              onPass: () => _sendResponse(_isConfirmAsk ? '0' : 'PASS'),
             ),
           SizedBox(
             height: 330,

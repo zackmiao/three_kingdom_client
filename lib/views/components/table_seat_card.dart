@@ -160,8 +160,57 @@ class TableSeatCard extends StatelessWidget {
     );
   }
 
-  Widget _strip(double k) {
-    final force = guessForce(hero.replaceFirst('谋', ''));
+  /// 护甲徽章：显示在左侧体力勾玉的**上方**
+  Widget _armorBadge(double k) {
+    return Container(
+      width: 20 * k,
+      margin: EdgeInsets.only(bottom: 3 * k),
+      padding: EdgeInsets.symmetric(vertical: 1 * k),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF42A5F5), Color(0xFF1565C0)],
+        ),
+        borderRadius: BorderRadius.circular(4 * k),
+        border: Border.all(color: Colors.lightBlueAccent, width: 0.8),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.lightBlueAccent.withValues(alpha: 0.55),
+              blurRadius: 5 * k),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('🛡', style: TextStyle(fontSize: 7.5 * k, height: 1.1)),
+          Text('$armor',
+              style: TextStyle(
+                  fontSize: 9 * k,
+                  height: 1.0,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  static String _suitGlyph(String key) {
+    switch (key) {
+      case 'SPADE':
+        return '♠';
+      case 'HEART':
+        return '♥';
+      case 'CLUB':
+        return '♣';
+      case 'DIAMOND':
+        return '♦';
+      default:
+        return '';
+    }
+  }
+
+  Widget _strip(double k) {    final force = guessForce(hero.replaceFirst('谋', ''));
     return Container(
       width: 24 * k,
       decoration: BoxDecoration(
@@ -207,10 +256,16 @@ class TableSeatCard extends StatelessWidget {
                   .toList(),
             ),
           ),
-          // 竖向勾玉
+          // 竖向勾玉（护甲显示在体力上方）
           Padding(
             padding: EdgeInsets.only(bottom: 4 * k),
-            child: _hpDotsVertical(k),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (armor > 0) _armorBadge(k),
+                _hpDotsVertical(k),
+              ],
+            ),
           ),
         ],
       ),
@@ -342,7 +397,8 @@ class TableSeatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isChained = marks.contains("铁索连环※");
     final displayMarks = marks
-        .where((m) => m != "铁索连环※" && !m.startsWith('烈弓-'))
+        .where((m) => m != "铁索连环※")
+        .map((m) => m.startsWith('烈弓-') ? '烈弓${_suitGlyph(m.substring(3))}' : m)
         .toList();
     final seatChar =
         seatNo >= 1 && seatNo <= _cnNums.length ? _cnNums[seatNo - 1] : '$seatNo';
@@ -359,7 +415,6 @@ class TableSeatCard extends StatelessWidget {
     final double nameLeft = diamondLeft + diamondSize + 4;
     final double statusLeft = stripW + 2;
     final double distBottom = diamondBottom + diamondSize + 4;
-    final double armorBottom = distBottom + 15 * k;
 
     final card = DragTarget<CardModel>(
       onWillAcceptWithDetails: (details) => !isMe && alive,
@@ -505,24 +560,6 @@ class TableSeatCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(3)),
                       child: Text('距$distance',
                           style: TextStyle(fontSize: 7.5 * k, color: Colors.white70)),
-                    ),
-                  ),
-                if (armor > 0)
-                  Positioned(
-                    left: statusLeft,
-                    bottom: armorBottom,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1565C0),
-                        borderRadius: BorderRadius.circular(3),
-                        border: Border.all(color: Colors.lightBlueAccent, width: 0.7),
-                      ),
-                      child: Text('盾$armor',
-                          style: TextStyle(
-                              fontSize: 7.5 * k,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
                     ),
                   ),
                 if (isChained)
