@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/card_catalog.dart';
 import '../models/card_model.dart';
+import '../models/hero_model.dart';
 import '../models/opponent_model.dart';
 import '../models/skill_model.dart';
 import '../network/command.dart';
@@ -18,6 +19,7 @@ import 'components/hand_card_area.dart';
 import 'components/table_seat_card.dart';
 import 'components/target_arrow_painter.dart';
 import 'dialogs/choice_prompt_dialog.dart';
+import 'dialogs/hero_draw_dialog.dart';
 import 'dialogs/huogong_dialog.dart';
 import 'dialogs/judge_result_dialog.dart';
 import 'dialogs/lucky_card_dialog.dart';
@@ -69,6 +71,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   List<SkillModel> _skills = [];
   List<OpponentModel> _opponents = [];
 
+  /// 每个席位的位置引用（用于「牌从谁那里飞出来」的动画）
+  final Map<String, GlobalKey> _seatKeys = <String, GlobalKey>{};
+  GlobalKey _seatKeyOf(String id) =>
+      _seatKeys.putIfAbsent(id, () => GlobalKey());
+
   String _weapon = "无";
   String _armor = "无";
   String _defHorse = "无";
@@ -85,12 +92,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   List<String> _activeCardTargetIds = [];
   List<String> _activeCardTargetNames = [];
   Timer? _cardDisplayTimer;
-
-  /// 可用主动技（右下角金色按钮）
-  static const Set<String> _activeSkillNames = {
-    '武圣', '乱击', '突袭', '扬威', '国色', '明策',
-    '清正', '反间', '据守', '解围', '乱武', '雷击', '颂'
-  };
 
   bool _isZhangBaMode = false;
   bool _isRenDeMode = false;
@@ -126,6 +127,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   final GlobalKey _deckKey = GlobalKey();
   final GlobalKey _handKey = GlobalKey();
   final GlobalKey _equipKey = GlobalKey();
+  final GlobalKey _centerKey = GlobalKey();
   final List<_FlyingCard> _flying = [];
   int _flyingSeq = 0;
   bool _hasSynced = false;
@@ -170,6 +172,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         break;
       case Command.ASK_LUCKY:
         _handleLuckyPrompt(packet.data);
+        break;
+      case Command.HERO_CANDIDATES:
+        _handleHeroCandidates(packet.data);
         break;
       case Command.SHOW_JUDGE_RESULT:
         JudgeResultDialog.show(context, packet.data);
@@ -226,6 +231,39 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       default:
         break;
     }
+  }
+
+  /// 开局选将：服务端 payload 为 3 名候选武将的序列化串（`;` 连接）。
+  /// 选中后把武将名作为回应发回去，服务端据此设定出战武将。
+  Future<void> _handleHeroCandidates(String data) async {
+    final heroes = HeroModel.parseAll(data);
+    if (heroes.isEmpty) {
+      _sendResponse('PASS');
+      return;
+    }
+
+    setState(() {
+      _askPrompt = "选将阶段：请从 ${heroes.length} 名候选中选择本局出战的武将";
+      _isMyTurn = false;
+      _isResponding = false;
+      _selectedIndices.clear();
+      _selectedTargetIds.clear();
+    });
+
+    final notifier = ValueNotifier<List<HeroModel>>(heroes);
+    String chosen = heroes.first.name;
+    await HeroDrawDialog.show(
+      context,
+      candidates: notifier,
+      currentHero: _heroName,
+      title: '选择出战武将',
+      dismissible: false,
+      onPick: (h) => chosen = h.name,
+    );
+    notifier.dispose();
+    if (!mounted) return;
+    setState(() => _askPrompt = "");
+    _sendResponse(chosen);
   }
 
   /// 手气卡询问：服务端 payload 形如 `手气卡剩余 4 张|序号#类型#花色#点数#ID#中文名#NONE;...`
@@ -314,6 +352,29 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     Timer(const Duration(milliseconds: 3400), () {
       if (mounted) setState(() => _shownCards.remove(played));
     });
+
+    // 出牌动画：牌从出牌者席位飞向中央结算区（所有人出牌都有这个「牌感」）
+    final srcId = sourceId.isEmpty ? _findPlayerIdByName(sourceName) : sourceId;
+    if (srcId != null && srcId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final seatKey = _seatKeys[srcId];
+        final from = seatKey == null ? null : _stageCenterOf(seatKey);
+        if (from == null) return;
+        _spawnFlight(
+          fromPos: from,
+          dest: 'center',
+          typeKey: played.typeKey,
+          name: cardName,
+          suitSymbol: _suitSymbolOf(suitKey),
+          points: point,
+          isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
+          width: 86,
+          height: 122,
+          arc: 46,
+        );
+      });
+    }
     _cardDisplayTimer?.cancel();
     _cardDisplayTimer = Timer(const Duration(milliseconds: 3200), () {
       if (mounted) {
@@ -356,7 +417,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     if (to == null) {
       if (dest == 'hand') to = _stageCenterOf(_handKey);
       if (dest == 'equip') to = _stageCenterOf(_equipKey);
-      if (dest == 'center') to = _stageCenterOf(_stageKey);
+      if (dest == 'center') to = _stageCenterOf(_centerKey);
+      if (dest == 'deck') to = _stageCenterOf(_deckKey);
+      if (dest == 'stage') to = _stageCenterOf(_stageKey);
     }
     if (from == null || to == null) return;
     final f = _FlyingCard(
@@ -622,6 +685,21 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
   }
 
+  String _suitSymbolOf(String suitKey) {
+    switch (suitKey) {
+      case 'SPADE':
+        return '♠';
+      case 'HEART':
+        return '♥';
+      case 'CLUB':
+        return '♣';
+      case 'DIAMOND':
+        return '♦';
+      default:
+        return '';
+    }
+  }
+
   String? _findPlayerIdByName(String name) {
     if (name.contains(widget.playerName)) return widget.playerId;
     for (final opp in _opponents) {
@@ -632,6 +710,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   void _parseState(String raw) {
     final prevHandCount = _handCards.length;
+    final Map<String, int> prevOppHand = {
+      for (final o in _opponents) o.id: o.handCount
+    };
     final prevWeapon = _weapon;
     final prevArmor = _armor;
     final prevDefHorse = _defHorse;
@@ -649,7 +730,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         final skStr = part.substring(7);
         _skills = skStr.isEmpty
             ? []
-            : skStr.split(',').map((sk) {
+            : skStr.split(';').map((sk) {
+                // 新格式：名字#类型#可用性(1/0)#描述 ；兼容旧格式 名字:类型:描述
+                if (sk.contains('#')) {
+                  final sp = sk.split('#');
+                  return SkillModel(
+                      name: sp[0],
+                      type: sp.length > 1 ? sp[1] : 'PASSIVE',
+                      usable: sp.length > 2 ? sp[2] != '0' : true,
+                      desc: sp.length > 3 ? sp.sublist(3).join('#') : '');
+                }
                 final sp = sk.split(':');
                 return SkillModel(
                     name: sp[0],
@@ -735,6 +825,52 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           if (!mounted) return;
           for (int i = 0; i < n; i++) {
             _spawnFlight(dest: 'hand', delayMs: i * 65, arc: 34);
+          }
+        });
+      } else if (_handCards.length < prevHandCount) {
+        // 弃牌：牌从手牌区飞到弃牌堆（刚打出过牌时不播，避免和出牌动画打架）
+        final bool justPlayed =
+            DateTime.now().difference(_lastCardPlayedAt).inMilliseconds < 700;
+        if (!justPlayed) {
+          final n = math.min(prevHandCount - _handCards.length, 4);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final from = _stageCenterOf(_handKey);
+            if (from == null) return;
+            for (int i = 0; i < n; i++) {
+              _spawnFlight(
+                fromPos: from,
+                dest: 'deck',
+                delayMs: i * 60,
+                arc: 22,
+                width: 58,
+                height: 82,
+              );
+            }
+          });
+        }
+      }
+      // 其他玩家摸牌：同样要有「牌飞过去」的感觉
+      for (final o in _opponents) {
+        final before = prevOppHand[o.id];
+        if (before == null) continue;
+        final gained = o.handCount - before;
+        if (gained <= 0) continue;
+        final n = math.min(gained, 3);
+        final seatKey = _seatKeys[o.id];
+        if (seatKey == null) continue;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final to = _stageCenterOf(seatKey);
+          for (int i = 0; i < n; i++) {
+            _spawnFlight(
+              dest: 'seat',
+              toPos: to,
+              delayMs: 40 + i * 70,
+              arc: 30,
+              width: 62,
+              height: 88,
+            );
           }
         });
       }
@@ -1073,6 +1209,93 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     Timer(const Duration(milliseconds: 1100), () {
       if (mounted) setState(() => _flashText = null);
     });
+  }
+
+  /// 响应阶段：这张牌能不能用来响应本次询问（不能的置暗，能用的亮起）。
+  bool _isCardPlayableNow(CardModel card) {
+    final prompt = _askPrompt;
+    if (prompt == null || prompt.isEmpty) return true;
+    // 「打出/使用一张【闪】」
+    if (prompt.contains('【闪】') && !prompt.contains('视为【杀】')) {
+      return card.typeKey == 'SHAN';
+    }
+    // 「打出/使用【杀】」
+    if (prompt.contains('打出【杀】') || prompt.contains('一张【杀】') ||
+        prompt.contains('视为【杀】')) {
+      if (card.typeKey == 'SHA' ||
+          card.typeKey == 'FIRE_SHA' ||
+          card.typeKey == 'THUNDER_SHA') {
+        return true;
+      }
+      // 龙胆：闪可当杀（有蓄力时）
+      if (card.typeKey == 'SHAN' && _skills.any((s) => s.name == '龙胆')) return true;
+      return false;
+    }
+    // 「使用【桃】/【酒】」
+    if (prompt.contains('【桃】')) {
+      return card.typeKey == 'TAO' || (card.typeKey == 'JIU' && prompt.contains('【酒】'));
+    }
+    // 「使用【无懈可击】」
+    if (prompt.contains('【无懈可击】')) {
+      return card.typeKey == 'WU_XIE_KE_JI';
+    }
+    return true;
+  }
+
+  /// 长按技能按钮：显示技能详情与当前是否可以发动。
+  void _showSkillDesc(SkillModel sk) {
+    final typeLabel = switch (sk.type) {
+      'ACTIVE' => '主动技',
+      'TRIGGER' => '触发技',
+      'LIMITED' => '限定技',
+      _ => '锁定技',
+    };
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2B2118),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFFFFD54F), width: 1.2)),
+        title: Row(
+          children: [
+            Text(sk.name,
+                style: const TextStyle(
+                    color: Color(0xFFFFD54F),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 19)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0x33FFD54F),
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: const Color(0x66FFD54F)),
+              ),
+              child: Text(typeLabel,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFFFFE082))),
+            ),
+            const Spacer(),
+            Text(sk.usable ? '可以发动' : '本回合已发动',
+                style: TextStyle(
+                    fontSize: 11.5,
+                    color: sk.usable ? Colors.greenAccent : Colors.white38)),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Text(sk.desc.isEmpty ? '（暂无描述）' : sk.desc,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 13.5, height: 1.6)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showBanner(String text) {
@@ -1498,14 +1721,20 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               Positioned(
                 left: e.value.dx,
                 top: e.value.dy,
-                child: seatWidget(_opponents.firstWhere((o) => o.id == e.key)),
+                child: KeyedSubtree(
+                  key: _seatKeyOf(e.key),
+                  child: seatWidget(_opponents.firstWhere((o) => o.id == e.key)),
+                ),
               ),
           // 出牌结算区：放到窗口的视觉正中心略偏下
           // （牌桌可用区在窗口上部 46..~557，居中用 0.5 会偏高，故用 0.70
           //   使卡牌中心落在窗口纵向中心下方约 10px）
           Align(
             alignment: const Alignment(0, 0.70),
-            child: CenterStageView(cards: _shownCards),
+            child: KeyedSubtree(
+              key: _centerKey,
+              child: CenterStageView(cards: _shownCards),
+            ),
           ),
           // 他人对我出牌时的红框警示
           if (_activeCardTargetIds.contains(widget.playerId))
@@ -1632,6 +1861,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           selectedIndices: _selectedIndices,
                           maxHandCards: _maxHandCards,
                           enabled: _askPrompt != null,
+                          isPlayable: _isResponding ? _isCardPlayableNow : null,
                           onCardTap: (card) {
                             if (_askPrompt == null) return;
                             setState(() {
@@ -1749,61 +1979,85 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   Widget _buildRightZone() {
-    final activeSkills = _skills
-        .where((s) => _activeSkillNames.contains(s.name))
-        .map((s) => s.name)
-        .toList();
+    final manualSkills = _skills.where((s) => s.isManual).toList();
 
     return SizedBox(
       width: 400,
       child: Column(
         children: [
-          // 主动技能（大号金色按钮）
-          if (activeSkills.isNotEmpty)
+          // 主动技能（大号金色按钮；不可发动时置暗；长按查看描述）
+          if (manualSkills.isNotEmpty)
             Container(
               height: 58,
               padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  for (final n in activeSkills)
+                  for (final sk in manualSkills)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
-                        onTap: () => _onSkillTap(n),
+                        onTap: () {
+                          if (!sk.usable) {
+                            _flash('【${sk.name}】本回合已经发动过了', Colors.orange);
+                            return;
+                          }
+                          _onSkillTap(sk.name);
+                        },
+                        onLongPress: () => _showSkillDesc(sk),
                         child: Container(
                           padding:
                               const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(colors: _activeSkill == n
-                                ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
-                                : [const Color(0xFFB8860B), const Color(0xFF6D4C00)]),
+                            gradient: LinearGradient(colors: !sk.usable
+                                ? [const Color(0xFF3E3E3E), const Color(0xFF1F1F1F)]
+                                : _activeSkill == sk.name
+                                    ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
+                                    : [const Color(0xFFB8860B), const Color(0xFF6D4C00)]),
                             borderRadius: BorderRadius.circular(7),
                             border: Border.all(
-                                color: _activeSkill == n
-                                    ? Colors.yellowAccent
-                                    : const Color(0xFFFFD54F),
-                                width: _activeSkill == n ? 2 : 1),
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x66FFB300), blurRadius: 8)
-                            ],
+                                color: !sk.usable
+                                    ? Colors.white24
+                                    : _activeSkill == sk.name
+                                        ? Colors.yellowAccent
+                                        : const Color(0xFFFFD54F),
+                                width: _activeSkill == sk.name ? 2 : 1),
+                            boxShadow: !sk.usable
+                                ? null
+                                : (_isResponding
+                                    ? const [
+                                        BoxShadow(
+                                            color: Color(0x99FFC107), blurRadius: 14)
+                                      ]
+                                    : const [
+                                        BoxShadow(
+                                            color: Color(0x66FFB300), blurRadius: 8)
+                                      ]),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text('发动', style: TextStyle(fontSize: 8.5, color: Colors.amber[100])),
-                              Text(n,
-                                  style: const TextStyle(
+                              Text(
+                                  !sk.usable
+                                      ? '已用'
+                                      : (_isResponding ? '可用' : '发动'),
+                                  style: TextStyle(
+                                      fontSize: 8.5,
+                                      color: !sk.usable
+                                          ? Colors.white38
+                                          : Colors.amber[100])),
+                              Text(sk.name,
+                                  style: TextStyle(
                                       fontSize: 15,
-                                      color: Colors.white,
+                                      color: !sk.usable ? Colors.white38 : Colors.white,
                                       fontWeight: FontWeight.w900)),
                             ],
                           ),
                         ),
                       ),
                     ),
-                  if (activeSkills.contains('国色'))
+                  if (manualSkills.any((s) => s.name == '国色'))
                     GestureDetector(
                       onTap: () => _sendResponse('GUOSECLEAR'),
                       child: Container(
@@ -1844,27 +2098,30 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                 Expanded(
                   child: Align(
                     alignment: Alignment.bottomCenter,
-                    child: TableSeatCard(
-                      id: widget.playerId,
-                      name: widget.playerName,
-                      hero: _heroName,
-                      hp: _hp,
-                      maxHp: _maxHp,
-                      handCount: _handCards.length,
-                      equips: [_weapon, _armor, _defHorse, _offHorse].join(','),
-                      judges: _judgeAreaCards,
-                      marks: _myMarks,
-                      isMe: true,
-                      role: _myRole,
-                      roleLabel: _myRoleCn,
-                      alive: !_isDead,
-                      armor: _myArmor,
-                      flipped: _myFlipped,
-                      seatNo: 1,
-                      compact: true,
-                      isCurrentTurn: _turnPlayerId == widget.playerId,
-                      currentPhaseName:
-                          _turnPlayerId == widget.playerId ? _currentPhaseName : null,
+                    child: KeyedSubtree(
+                      key: _seatKeyOf(widget.playerId),
+                      child: TableSeatCard(
+                        id: widget.playerId,
+                        name: widget.playerName,
+                        hero: _heroName,
+                        hp: _hp,
+                        maxHp: _maxHp,
+                        handCount: _handCards.length,
+                        equips: [_weapon, _armor, _defHorse, _offHorse].join(','),
+                        judges: _judgeAreaCards,
+                        marks: _myMarks,
+                        isMe: true,
+                        role: _myRole,
+                        roleLabel: _myRoleCn,
+                        alive: !_isDead,
+                        armor: _myArmor,
+                        flipped: _myFlipped,
+                        seatNo: 1,
+                        compact: true,
+                        isCurrentTurn: _turnPlayerId == widget.playerId,
+                        currentPhaseName:
+                            _turnPlayerId == widget.playerId ? _currentPhaseName : null,
+                      ),
                     ),
                   ),
                 ),

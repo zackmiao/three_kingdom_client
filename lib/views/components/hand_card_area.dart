@@ -11,6 +11,8 @@ class HandCardArea extends StatelessWidget {
   final Function(CardModel card) onCardTap;
   final Function(Offset globalPosition, CardModel card)? onCardDragging;
   final VoidCallback? onCardDragEnd;
+  /// 返回 false 的牌会被置暗（当前询问下不能用来响应的牌）。
+  final bool Function(CardModel card)? isPlayable;
 
   const HandCardArea({
     super.key,
@@ -21,6 +23,7 @@ class HandCardArea extends StatelessWidget {
     this.enabled = true,
     this.onCardDragging,
     this.onCardDragEnd,
+    this.isPlayable,
   });
 
   static const double cardW = 112;
@@ -57,10 +60,12 @@ class HandCardArea extends StatelessWidget {
       itemBuilder: (context, index) {
         final card = handCards[index];
         final isSelected = selectedIndices.contains(card.index);
+        final bool playable = isPlayable == null || isPlayable!(card);
 
         return Padding(
           padding: EdgeInsets.only(
-              right: 6, top: isSelected ? 0 : 6, bottom: isSelected ? 8 : 0),
+              right: 6, top: isSelected || !playable ? 0 : 6,
+              bottom: isSelected ? 8 : 0),
           child: Listener(
             onPointerMove: (event) {
               if (onCardDragging != null) onCardDragging!(event.position, card);
@@ -78,7 +83,20 @@ class HandCardArea extends StatelessWidget {
               child: _HoverLift(
                 child: GestureDetector(
                   onTap: () => onCardTap(card),
-                  child: _buildCardFace(card, isSelected),
+                  child: playable
+                      ? _buildCardFace(card, isSelected)
+                      : Opacity(
+                          opacity: 0.34,
+                          child: ColorFiltered(
+                            colorFilter: const ColorFilter.matrix(<double>[
+                              0.3, 0.3, 0.3, 0, 0,
+                              0.3, 0.3, 0.3, 0, 0,
+                              0.3, 0.3, 0.3, 0, 0,
+                              0, 0, 0, 1, 0,
+                            ]),
+                            child: _buildCardFace(card, isSelected),
+                          ),
+                        ),
                 ),
               ),
             ),

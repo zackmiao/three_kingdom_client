@@ -12,14 +12,18 @@ class HeroDrawDialog extends StatefulWidget {
   final ValueNotifier<List<HeroModel>> candidates;
   final String currentHero;
   final void Function(HeroModel hero) onPick;
-  final VoidCallback onReroll;
+  final VoidCallback? onReroll;
+  final String title;
+  final bool dismissible;
 
   const HeroDrawDialog({
     super.key,
     required this.candidates,
     required this.currentHero,
     required this.onPick,
-    required this.onReroll,
+    this.onReroll,
+    this.title = '抽取武将',
+    this.dismissible = true,
   });
 
   static Future<void> show(
@@ -27,16 +31,20 @@ class HeroDrawDialog extends StatefulWidget {
     required ValueNotifier<List<HeroModel>> candidates,
     required String currentHero,
     required void Function(HeroModel hero) onPick,
-    required VoidCallback onReroll,
+    VoidCallback? onReroll,
+    String title = '抽取武将',
+    bool dismissible = true,
   }) {
     return showDialog<void>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: dismissible,
       builder: (_) => HeroDrawDialog(
         candidates: candidates,
         currentHero: currentHero,
         onPick: onPick,
         onReroll: onReroll,
+        title: title,
+        dismissible: dismissible,
       ),
     );
   }
@@ -66,8 +74,8 @@ class _HeroDrawDialogState extends State<HeroDrawDialog> {
                   children: [
                     const Icon(Icons.style, color: Colors.amberAccent, size: 22),
                     const SizedBox(width: 8),
-                    const Text('抽取武将',
-                        style: TextStyle(
+                    Text(widget.title,
+                        style: const TextStyle(
                             color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold)),
                     const SizedBox(width: 10),
                     Text('从 ${list.length} 张候选将面中选择出战武将',
@@ -104,21 +112,23 @@ class _HeroDrawDialogState extends State<HeroDrawDialog> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    TextButton.icon(
-                      onPressed: widget.onReroll,
-                      icon: const Icon(Icons.refresh, size: 18, color: Colors.cyanAccent),
-                      label: const Text('重新抽取', style: TextStyle(color: Colors.cyanAccent)),
-                    ),
+                    if (widget.onReroll != null)
+                      TextButton.icon(
+                        onPressed: widget.onReroll,
+                        icon: const Icon(Icons.refresh, size: 18, color: Colors.cyanAccent),
+                        label: const Text('重新抽取', style: TextStyle(color: Colors.cyanAccent)),
+                      ),
                     TextButton.icon(
                       onPressed: () => HeroBookScreen.show(context),
                       icon: const Icon(Icons.menu_book, size: 18, color: Colors.white70),
                       label: const Text('武将图鉴', style: TextStyle(color: Colors.white70)),
                     ),
                     const Spacer(),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('稍后再选', style: TextStyle(color: Colors.white54)),
-                    ),
+                    if (widget.dismissible)
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('稍后再选', style: TextStyle(color: Colors.white54)),
+                      ),
                   ],
                 ),
               ],

@@ -6,7 +6,6 @@ import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
 import 'components/hero_portrait.dart';
-import 'dialogs/hero_draw_dialog.dart';
 import 'dialogs/hero_select_dialog.dart';
 import 'game_room_screen.dart';
 import 'hero_book_screen.dart';
@@ -41,7 +40,6 @@ class _RoomScreenState extends State<RoomScreen> {
   List<RoomMemberModel> _members = [];
   List<HeroModel> _heroes = HeroCatalog.instance.heroes;
   final ValueNotifier<List<HeroModel>> _candidates = ValueNotifier<List<HeroModel>>(const []);
-  bool _autoDrawShown = false;
   bool _navigating = false;
 
   static const Map<String, String> _modeLabels = {
@@ -68,14 +66,8 @@ class _RoomScreenState extends State<RoomScreen> {
         HeroCatalog.instance.update(packet.data);
         setState(() => _heroes = HeroCatalog.instance.heroes);
       } else if (packet.command == Command.HERO_CANDIDATES) {
+        // 选将改为在开局后（进入对局界面）进行，房间内只展示候选、不弹窗
         _candidates.value = HeroModel.parseAll(packet.data);
-        // 进房后第一次拿到候选，自动弹出抽将界面（每局只自动弹一次）
-        if (!_autoDrawShown && _candidates.value.isNotEmpty) {
-          _autoDrawShown = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showDrawDialog();
-          });
-        }
       } else if (packet.command == Command.LEAVE_ROOM) {
         _backToLobby();
       }
@@ -168,35 +160,6 @@ class _RoomScreenState extends State<RoomScreen> {
               Packet(command: Command.SELECT_HERO, senderId: widget.playerId, data: hero.name));
         }
       },
-    );
-  }
-
-  /// 开局抽将：从服务端抽到的候选里挑一位出战，可重新抽取。
-  void _showDrawDialog() {
-    final myHero = _members
-        .firstWhere((m) => m.id == widget.playerId,
-            orElse: () => RoomMemberModel(
-                id: widget.playerId,
-                name: widget.playerName,
-                isAi: false,
-                heroName: "刘备",
-                isReady: false))
-        .heroName;
-
-    if (_candidates.value.isEmpty) {
-      // 还没收到候选（旧服务端或刚进房），退化成完整网格选将
-      _showChangeHeroDialog();
-      return;
-    }
-
-    HeroDrawDialog.show(
-      context,
-      candidates: _candidates,
-      currentHero: myHero,
-      onPick: (hero) => _socket.sendPacket(
-          Packet(command: Command.SELECT_HERO, senderId: widget.playerId, data: hero.name)),
-      onReroll: () => _socket.sendPacket(
-          Packet(command: Command.REROLL_HERO, senderId: widget.playerId, data: widget.playerId)),
     );
   }
 
@@ -372,14 +335,22 @@ class _RoomScreenState extends State<RoomScreen> {
             color: const Color(0xFF24252E),
             child: Row(
               children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal[800],
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-                  icon: const Icon(Icons.style, color: Colors.white),
-                  label: Text('抽取武将 (当前: ${myMember.heroName})',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  onPressed: _showDrawDialog,
+                // 选将在开局后进行，房间里只保留图鉴入口
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: const Color(0x33FFFFFF),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0x33FFD9A0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.style, color: Color(0xFFFFD9A0), size: 18),
+                      const SizedBox(width: 7),
+                      Text('开局后选将 · 候选中 ${_candidates.value.length} 名',
+                          style: const TextStyle(color: Color(0xFFFFE0B2), fontSize: 13)),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 10),
                 OutlinedButton.icon(
