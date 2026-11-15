@@ -19,8 +19,9 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   final SocketService _socket = SocketService();
   final TextEditingController _roomNameController = TextEditingController(text: "三国杀标准房间");
-  final TextEditingController _joinRoomIdController = TextEditingController(text: "ROOM_888");
+  final TextEditingController _joinRoomIdController = TextEditingController();
   final TextEditingController _maxPlayersController = TextEditingController(text: "4");
+  final TextEditingController _roomIdController = TextEditingController();
 
   /// 选择的游戏模式：IDENTITY / TEAM_2V2 / LANDLORD
   String _mode = "IDENTITY";
@@ -45,6 +46,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
   StreamSubscription<String>? _disconnectSub;
   bool _busy = false;
   String _status = "";
+  /// 大厅可见的房间列表
+  List<_RoomInfo> _rooms = const [];
+
+  void _parseRoomList(String raw) {
+    final List<_RoomInfo> list = [];
+    for (final seg in raw.split(';')) {
+      if (seg.trim().isEmpty) continue;
+      final p = seg.split('|');
+      if (p.length < 6) continue;
+      list.add(_RoomInfo(
+        id: p[0],
+        name: p[1],
+        players: int.tryParse(p[2]) ?? 0,
+        maxPlayers: int.tryParse(p[3]) ?? 0,
+        mode: p[4],
+        state: p[5],
+      ));
+    }
+    if (mounted) setState(() => _rooms = list);
+  }
 
   @override
   void initState() {
@@ -67,6 +88,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
         if (packet.data.contains("ERROR") || packet.data.contains("无法") || packet.data.contains("暂无")) {
           _toast(packet.data, error: true);
         }
+      } else if (packet.command == Command.ROOM_LIST) {
+        _parseRoomList(packet.data);
       }
     });
 
@@ -74,6 +97,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
       if (!mounted) return;
       _toast(reason, error: true);
     });
+
+    // 进大厅就拉一次房间列表
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshRooms());
+  }
+
+  void _refreshRooms() {
+    if (!_socket.isConnected) return;
+    _socket.sendPacket(Packet(
+      command: Command.ROOM_LIST,
+      senderId: widget.playerId,
+      data: "",
+    ));
   }
 
   @override
@@ -83,6 +118,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     _roomNameController.dispose();
     _joinRoomIdController.dispose();
     _maxPlayersController.dispose();
+    _roomIdController.dispose();
     super.dispose();
   }
 
@@ -114,23 +150,21 @@ class _LobbyScreenState extends State<LobbyScreen> {
     String name = _roomNameController.text.trim();
     if (name.isEmpty) name = "三国杀房间";
     final maxPlayers = (int.tryParse(_maxPlayersController.text.trim()) ?? 4).clamp(2, 8);
+    final roomId = _roomIdController.text.trim();
     setState(() => _busy = true);
     _socket.sendPacket(Packet(
       command: Command.CREATE_ROOM,
       senderId: widget.playerId,
-      data: "$name,$maxPlayers,$_mode",
+      data: "$name,$maxPlayers,$_mode,$roomId",
     ));
     await Future.delayed(const Duration(milliseconds: 600));
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _joinRoom() async {
+  Future<void> _joinRoom([String? roomId]) async {
     if (!await _ensureConnection()) return;
-    String rId = _joinRoomIdController.text.trim();
-    if (rId.isEmpty) {
-      _toast("请输入要加入的房间号");
-      return;
-    }
+    final rId = (roomId ?? _joinRoomIdController.text).trim();
+    // 留空表示自动加入一个还在等待的房间
     _socket.sendPacket(Packet(command: Command.JOIN_ROOM, senderId: widget.playerId, data: rId));
   }
 
@@ -237,6 +271,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 118,
+                      child: TextField(
+                        controller: _roomIdController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: '房间号(可选)',
+                          labelStyle: const TextStyle(color: Colors.amberAccent, fontSize: 12),
+                          filled: true,
+                          fillColor: Colors.black26,
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -270,7 +320,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   controller: _joinRoomIdController,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    labelText: '房间号',
+                    labelText: '房间号（留空则自动加入可玩房间）',
                     labelStyle: const TextStyle(color: Colors.cyanAccent),
                     filled: true,
                     fillColor: Colors.black26,
@@ -278,19 +328,103 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo[700],
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo[700],
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.login, color: Colors.white),
+                        label: const Text('加入房间',
+                            style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                        onPressed: _joinRoom,
+                      ),
                     ),
-                    icon: const Icon(Icons.login, color: Colors.white),
-                    label: const Text('加入房间',
-                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                    onPressed: _joinRoom,
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 132,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.cyanAccent),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.flash_on, color: Colors.cyanAccent, size: 18),
+                        label: const Text('快速加入',
+                            style: TextStyle(color: Colors.cyanAccent, fontSize: 13)),
+                        onPressed: () => _joinRoom(''),
+                      ),
+                    ),
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16.0),
+                  child: Row(
+                    children: [
+                      Expanded(child: Divider(color: Colors.white24)),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12.0),
+                        child: Text('房间列表', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      ),
+                      Expanded(child: Divider(color: Colors.white24)),
+                    ],
                   ),
                 ),
+                Row(children: [
+                  Text('共 ${_rooms.length} 个房间',
+                      style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: '刷新列表',
+                    onPressed: _refreshRooms,
+                    icon: const Icon(Icons.refresh, color: Colors.cyanAccent, size: 18),
+                  ),
+                ]),
+                if (_rooms.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('暂无房间，先创建一个吧',
+                        style: TextStyle(color: Colors.white24, fontSize: 12)),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 168),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _rooms.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, color: Colors.white12),
+                      itemBuilder: (_, i) {
+                        final r = _rooms[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                          leading: Icon(
+                            r.state == 'PLAYING' ? Icons.play_circle : Icons.meeting_room,
+                            color: r.state == 'PLAYING' ? Colors.orangeAccent : Colors.amberAccent,
+                            size: 18,
+                          ),
+                          title: Text(r.name,
+                              style: const TextStyle(color: Colors.white, fontSize: 13)),
+                          subtitle: Text('${r.id} · ${r.modeLabel} · ${r.players}/${r.maxPlayers} 人'
+                              '${r.state == 'PLAYING' ? ' · 对局中' : ''}',
+                              style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          trailing: r.state == 'PLAYING' || r.players >= r.maxPlayers
+                              ? const Text('不可加入',
+                                  style: TextStyle(color: Colors.white24, fontSize: 11))
+                              : TextButton(
+                                  onPressed: () => _joinRoom(r.id),
+                                  child: const Text('加入',
+                                      style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+                                ),
+                          onTap: r.state == 'PLAYING' || r.players >= r.maxPlayers
+                              ? null
+                              : () => _joinRoom(r.id),
+                        );
+                      },
+                    ),
+                  ),
                 if (_status.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 14),
@@ -307,9 +441,38 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 }
 
+/// 大厅房间列表条目。
+class _RoomInfo {
+  final String id;
+  final String name;
+  final int players;
+  final int maxPlayers;
+  final String mode;
+  final String state;
+
+  const _RoomInfo({
+    required this.id,
+    required this.name,
+    required this.players,
+    required this.maxPlayers,
+    required this.mode,
+    required this.state,
+  });
+
+  String get modeLabel {
+    switch (mode) {
+      case 'TEAM_2V2':
+        return '2v2';
+      case 'LANDLORD':
+        return '斗地主';
+      default:
+        return '身份场';
+    }
+  }
+}
+
 /// 大厅里的模式元数据。
-class _ModeInfo {
-  final String key;
+class _ModeInfo {  final String key;
   final String title;
   final String desc;
   final String seatLabel;

@@ -21,6 +21,8 @@ enum Command {
     HERO_CANDIDATES,
     // 重新抽取候选武将
     REROLL_HERO,
+    // 大厅房间列表：`房间号|房间名|人数|上限|模式key|状态`，`;` 分隔
+    ROOM_LIST,
 
     // 终局结算
     GAME_OVER,

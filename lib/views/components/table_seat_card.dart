@@ -31,7 +31,10 @@ class TableSeatCard extends StatelessWidget {
   final bool flipped;
   final int seatNo;
   final bool compact; // 紧凑模式（主视角右下角使用）
+  /// 酒加成（>0 时武将牌泛血色红光，表示下一张【杀】伤害 +N）
+  final int wineBonus;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final Function(CardModel droppedCard, String targetId)? onCardDropped;
 
   const TableSeatCard({
@@ -59,7 +62,9 @@ class TableSeatCard extends StatelessWidget {
     this.flipped = false,
     this.seatNo = 1,
     this.compact = false,
+    this.wineBonus = 0,
     this.onTap,
+    this.onLongPress,
     this.onCardDropped,
   });
 
@@ -400,6 +405,7 @@ class TableSeatCard extends StatelessWidget {
         .where((m) => m != "铁索连环※")
         .map((m) => m.startsWith('烈弓-') ? '烈弓${_suitGlyph(m.substring(3))}' : m)
         .toList();
+    if (wineBonus > 0) displayMarks.insert(0, '🍶+$wineBonus');
     final seatChar =
         seatNo >= 1 && seatNo <= _cnNums.length ? _cnNums[seatNo - 1] : '$seatNo';
     final cardWidth = compact ? 180.0 : w;
@@ -425,8 +431,10 @@ class TableSeatCard extends StatelessWidget {
         final isHovered = candidateData.isNotEmpty && candidateData.first != null;
         final highlight = isHovered || isSelectedAsTarget;
 
+        final drunk = wineBonus > 0;
         return GestureDetector(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Container(
             key: cardKey,
             width: cardWidth,
@@ -436,10 +444,14 @@ class TableSeatCard extends StatelessWidget {
               border: Border.all(
                 color: highlight
                     ? const Color(0xFFFF5252)
-                    : (isCurrentTurn ? const Color(0xFFFFC94D) : const Color(0x66FFD9A0)),
-                width: highlight ? 3 : (isCurrentTurn ? 2.5 : 1.2),
+                    : (isCurrentTurn
+                        ? const Color(0xFFFFC94D)
+                        : (drunk ? const Color(0xFFFF4D4D) : const Color(0x66FFD9A0))),
+                width: highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2),
               ),
               boxShadow: [
+                if (drunk)
+                  const BoxShadow(color: Color(0x99FF2D2D), blurRadius: 22, spreadRadius: 3),
                 if (isCurrentTurn)
                   const BoxShadow(color: Color(0xAAFFB300), blurRadius: 18, spreadRadius: 2),
                 BoxShadow(

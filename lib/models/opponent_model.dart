@@ -13,6 +13,7 @@ class OpponentModel {
   final int distance;
   final int armor;
   final bool flipped;
+  final int wineBonus;
 
   OpponentModel({
     required this.id,
@@ -29,6 +30,7 @@ class OpponentModel {
     this.distance = 1,
     this.armor = 0,
     this.flipped = false,
+    this.wineBonus = 0,
   });
 
   static OpponentModel? parse(String token) {
@@ -50,6 +52,7 @@ class OpponentModel {
       distance: p.length > 11 ? (int.tryParse(p[11]) ?? 1) : 1,
       armor: p.length > 12 ? (int.tryParse(p[12]) ?? 0) : 0,
       flipped: p.length > 13 && p[13] == "1",
+      wineBonus: p.length > 14 ? (int.tryParse(p[14]) ?? 0) : 0,
     );
   }
 
@@ -64,6 +67,14 @@ class OpponentModel {
         return "反贼";
       case "TRAITOR":
         return "内奸";
+      case "WARM":
+        return "暖方";
+      case "COLD":
+        return "冷方";
+      case "LORD":
+        return "地主";
+      case "FARMER":
+        return "农民";
       default:
         return "？";
     }

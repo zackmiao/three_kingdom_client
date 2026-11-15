@@ -83,6 +83,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   List<String> _judgeAreaCards = [];
   List<String> _myMarks = [];
 
+  /// 酒加成（>0 时主视角武将卡显示红色血气）
+  int _wineBonus = 0;
+
+  /// 对手技能表：playerId -> 技能列表（长按对方武将牌查看）
+  Map<String, List<SkillModel>> _oppSkills = {};
+
   final Set<int> _selectedIndices = {};
   final Set<String> _selectedTargetIds = {};
 
@@ -175,6 +181,18 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         TargetZoneDialog.show(context, packet.data, _sendResponse);
         break;
       case Command.ASK_WU_GU:
+        // 五谷丰登：清掉上一阶段的提示并隐藏操作栏，避免「确定 / 结束出牌」
+        // 把上一阶段的响应当成五谷的答案发出去（服务端会静默取第一张牌）
+        _stopCountdown();
+        setState(() {
+          _askPrompt = null;
+          _isResponding = false;
+          _isConfirmAsk = false;
+          _isMyTurn = false;
+          _selectedIndices.clear();
+          _selectedTargetIds.clear();
+          _isZhangBaMode = false;
+        });
         // 同一轮内的多次五谷选牌共享历史：已选走的牌按下去标记「已选」
         WuGuDialog.show(context, packet.data, _sendResponse);
         break;
@@ -185,6 +203,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         _handleHeroCandidates(packet.data);
         break;
       case Command.SHOW_JUDGE_RESULT:
+        // 判定牌：从牌堆飞一张牌到被判定的角色身上，再弹判定结果
+        _spawnJudgeFlight(packet.data);
         JudgeResultDialog.show(context, packet.data);
         break;
       case Command.CARD_PLAYED:
@@ -468,6 +488,33 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   void _removeFlight(_FlyingCard f) {
     if (!mounted) return;
     setState(() => _flying.remove(f));
+  }
+
+  /// 判定：一张牌从牌堆飞向被判定的角色（payload `玩家|锦囊|牌描述|typeKey|suitKey|point|effect`）
+  void _spawnJudgeFlight(String data) {
+    final seg = data.split('|');
+    if (seg.length < 5) return;
+    final who = seg[0].trim();
+    final typeKey = seg[3].trim();
+    final suitKey = seg[4].trim();
+    final point = seg.length > 5 ? seg[5].trim() : '';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final id = _findPlayerIdByName(who) ?? widget.playerId;
+      final to = _stageCenterOf(_seatKeyOf(id));
+      if (to == null) return;
+      _spawnFlight(
+        toPos: to,
+        dest: 'seat',
+        typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
+        suitSymbol: _suitSymbolOf(suitKey),
+        points: point,
+        isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
+        width: 78,
+        height: 110,
+        arc: 44,
+      );
+    });
   }
 
   /// 在某个角色头顶飘一条数字（掉血 -1 / 回复 +1 / 护甲 🛡）。找不到人就退回屏幕中央。
@@ -971,6 +1018,29 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (part.startsWith('ROLE:')) _myRole = part.substring(5);
       if (part.startsWith('ROLECN:')) _myRoleCn = part.substring(7);
       if (part.startsWith('MODE:')) _gameMode = part.substring(5);
+      if (part.startsWith('WINE:')) _wineBonus = int.tryParse(part.substring(5)) ?? 0;
+      if (part.startsWith('OPPSKILLS:')) {
+        final raw = part.substring(10).trim();
+        _oppSkills = {};
+        if (raw.isNotEmpty) {
+          for (final seg in raw.split(';')) {
+            final idx = seg.indexOf(':');
+            if (idx <= 0) continue;
+            final id = seg.substring(0, idx);
+            final list = seg.substring(idx + 1);
+            _oppSkills[id] = list.isEmpty
+                ? <SkillModel>[]
+                : list.split(',').map((s) {
+                    final sp = s.split('#');
+                    return SkillModel(
+                      name: sp.isNotEmpty ? sp[0] : '',
+                      type: sp.length > 1 ? sp[1] : 'PASSIVE',
+                      desc: sp.length > 2 ? sp.sublist(2).join('#') : '',
+                    );
+                  }).toList();
+          }
+        }
+      }
       if (part.startsWith('ALIVE:')) _aliveCount = int.tryParse(part.substring(6)) ?? 1;
       if (part.startsWith('ROUND:')) _roundNo = int.tryParse(part.substring(6)) ?? 1;
       if (part.startsWith('TIMEOUT:')) _timeoutSeconds = int.tryParse(part.substring(8)) ?? 25;
@@ -1570,8 +1640,112 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     );
   }
 
-  void _showBanner(String text) {
-    setState(() {
+  /// 长按对手武将牌：查看其技能（含被动/锁定技）
+  void _showOpponentSkills(OpponentModel o) {
+    final skills = _oppSkills[o.id] ?? const <SkillModel>[];
+    _showSkillListDialog(
+      title: o.hero.isNotEmpty ? o.hero : o.name,
+      subtitle: '${o.name} 的技能',
+      skills: skills,
+    );
+  }
+
+  /// 技能总览弹窗：所有技能（含被动/锁定技）都可在这里读到完整描述
+  void _showSkillListDialog({
+    required String title,
+    required String subtitle,
+    required List<SkillModel> skills,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2B2118),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFFFFD54F), width: 1.2)),
+        title: Row(children: [
+          const Icon(Icons.auto_awesome, color: Color(0xFFFFD54F), size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(title,
+                style: const TextStyle(
+                    color: Color(0xFFFFD54F), fontWeight: FontWeight.w900, fontSize: 19)),
+          ),
+          Text(subtitle, style: const TextStyle(color: Colors.white38, fontSize: 11.5)),
+        ]),
+        content: SizedBox(
+          width: 460,
+          child: skills.isEmpty
+              ? const Text('（没有可查看的技能）',
+                  style: TextStyle(color: Colors.white54, fontSize: 13))
+              : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final sk in skills)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0x1AFFFFFF),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: sk.isManual
+                                    ? const Color(0x66FFD54F)
+                                    : Colors.white12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(children: [
+                                Text(sk.name,
+                                    style: TextStyle(
+                                        color: sk.isManual
+                                            ? const Color(0xFFFFE082)
+                                            : Colors.white70,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15)),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0x22FFD54F),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: const Color(0x44FFD54F)),
+                                  ),
+                                  child: Text(sk.typeLabel,
+                                      style: const TextStyle(
+                                          fontSize: 10.5, color: Color(0xFFFFE082))),
+                                ),
+                                const Spacer(),
+                                if (sk.hasCounter)
+                                  Text('${sk.remain}/${sk.cap}',
+                                      style: const TextStyle(
+                                          fontSize: 11, color: Colors.cyanAccent)),
+                              ]),
+                              const SizedBox(height: 6),
+                              Text(sk.desc.isEmpty ? '（暂无描述）' : sk.desc,
+                                  style: const TextStyle(
+                                      color: Colors.white70, fontSize: 12.5, height: 1.5)),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBanner(String text) {    setState(() {
       _bannerText = text;
       _bannerVisible = true;
     });
@@ -1950,6 +2124,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           distance: o.distance,
           armor: o.armor,
           flipped: 0 > 1 ? false : o.flipped,
+          wineBonus: o.wineBonus,
+          onLongPress: () => _showOpponentSkills(o),
           seatNo: _opponents.indexOf(o) + 2,
           isCurrentTurn: isOppTurn,
           currentPhaseName: isOppTurn ? _currentPhaseName : null,
@@ -2268,13 +2444,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   Widget _buildRightZone() {
-    final manualSkills = _skills.where((s) => s.isManual).toList();
+    // 展示全部技能（含锁定/被动技），被动技点击只能查看描述
+    final manualSkills = _skills;
 
     return SizedBox(
       width: 400,
       child: Column(
         children: [
-          // 主动技能（大号金色按钮；不可发动时置暗；长按查看描述）
+          // 技能按钮（主动技可发动；不可发动时置暗；长按/点击被动技查看描述）
           if (manualSkills.isNotEmpty)
             Container(
               height: 58,
@@ -2287,6 +2464,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
                         onTap: () {
+                          // 被动/锁定技不可发动，点一下只看完整描述
+                          if (!sk.isManual) {
+                            _showSkillDesc(sk);
+                            return;
+                          }
                           // 次数用完的技能按钮已经置暗，点了不做任何事（不再弹「已发动」提示）
                           if (!sk.usable) return;
                           _onSkillTap(sk.name);
@@ -2296,20 +2478,24 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           padding:
                               const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(colors: !sk.usable
-                                ? [const Color(0xFF3E3E3E), const Color(0xFF1F1F1F)]
-                                : _activeSkill == sk.name
-                                    ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
-                                    : [const Color(0xFFB8860B), const Color(0xFF6D4C00)]),
+                            gradient: LinearGradient(colors: !sk.isManual
+                                ? [const Color(0xFF3A3A3A), const Color(0xFF232323)]
+                                : (!sk.usable
+                                    ? [const Color(0xFF3E3E3E), const Color(0xFF1F1F1F)]
+                                    : _activeSkill == sk.name
+                                        ? [const Color(0xFFFFB300), const Color(0xFFE65100)]
+                                        : [const Color(0xFFB8860B), const Color(0xFF6D4C00)])),
                             borderRadius: BorderRadius.circular(7),
                             border: Border.all(
-                                color: !sk.usable
+                                color: !sk.isManual
                                     ? Colors.white24
-                                    : _activeSkill == sk.name
-                                        ? Colors.yellowAccent
-                                        : const Color(0xFFFFD54F),
+                                    : (!sk.usable
+                                        ? Colors.white24
+                                        : _activeSkill == sk.name
+                                            ? Colors.yellowAccent
+                                            : const Color(0xFFFFD54F)),
                                 width: _activeSkill == sk.name ? 2 : 1),
-                            boxShadow: !sk.usable
+                            boxShadow: (!sk.isManual || !sk.usable)
                                 ? null
                                 : (_isResponding
                                     ? const [
@@ -2326,20 +2512,28 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                  !sk.usable
-                                      ? '已用'
-                                      : (sk.hasCounter
+                                  !sk.isManual
+                                      ? (sk.hasCounter
                                           ? '${sk.remain}/${sk.cap}'
-                                          : (_isResponding ? '可用' : '发动')),
+                                          : '被动')
+                                      : (!sk.usable
+                                          ? (sk.hasCounter
+                                              ? '${sk.remain}/${sk.cap}'
+                                              : '已用')
+                                          : (sk.hasCounter
+                                              ? '${sk.remain}/${sk.cap}'
+                                              : (_isResponding ? '可用' : '发动'))),
                                   style: TextStyle(
                                       fontSize: 8.5,
-                                      color: !sk.usable
+                                      color: (!sk.isManual || !sk.usable)
                                           ? Colors.white38
                                           : Colors.amber[100])),
                               Text(sk.name,
                                   style: TextStyle(
                                       fontSize: 15,
-                                      color: !sk.usable ? Colors.white38 : Colors.white,
+                                      color: (!sk.isManual || !sk.usable)
+                                          ? Colors.white38
+                                          : Colors.white,
                                       fontWeight: FontWeight.w900)),
                             ],
                           ),
@@ -2405,6 +2599,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         alive: !_isDead,
                         armor: _myArmor,
                         flipped: _myFlipped,
+                        wineBonus: _wineBonus,
+                        onLongPress: () => _showSkillListDialog(
+                            title: _heroName.isEmpty ? '我的技能' : _heroName,
+                            skills: _skills,
+                            subtitle: '我的技能'),
                         seatNo: 1,
                         compact: true,
                         isCurrentTurn: _turnPlayerId == widget.playerId,
