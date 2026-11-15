@@ -19,12 +19,16 @@ class ActionPromptBar extends StatelessWidget {
   /// 当前是否已经选中了目标席位
   final bool hasTarget;
 
+  /// 是否选中了【铁索连环】（选中后可以点「重铸」直接换牌，不必指定目标）
+  final bool hasTieSuoSelected;
+
   final VoidCallback onConfirm;
   final VoidCallback onCancelSelection;
   final VoidCallback onToggleZhangBa;
   final VoidCallback onToggleRenDe;
   final VoidCallback onToggleZhiHeng;
   final VoidCallback onToggleChuHai;
+  final VoidCallback onRecastTieSuo;
   final VoidCallback onPass;
 
   const ActionPromptBar({
@@ -47,11 +51,15 @@ class ActionPromptBar extends StatelessWidget {
     required this.onToggleZhiHeng,
     required this.onToggleChuHai,
     required this.onPass,
+    this.onRecastTieSuo = _noop,
+    this.hasTieSuoSelected = false,
     this.secondsLeft = 0,
     this.totalSeconds = 25,
     this.isTargetOnly = false,
     this.hasTarget = false,
   });
+
+  static void _noop() {}
 
   Widget _skillButton({
     required String label,
@@ -206,6 +214,14 @@ class ActionPromptBar extends StatelessWidget {
                   active: isZhangBaMode,
                   color: Colors.brown,
                   onTap: onToggleZhangBa,
+                ),
+              if (hasTieSuoSelected && !isResponding)
+                _skillButton(
+                  label: '重铸铁索',
+                  activeLabel: '重铸铁索',
+                  active: false,
+                  color: const Color(0xFF455A64),
+                  onTap: onRecastTieSuo,
                 ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(

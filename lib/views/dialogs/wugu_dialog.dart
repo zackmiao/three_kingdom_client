@@ -11,6 +11,17 @@ class WuGuDialog {
     'DIAMOND': '♦',
   };
 
+  /// 本次五谷丰登里已经被选走的牌（按顺序显示在左边，按下并标注「已选」）
+  static final List<_WuGuTaken> _taken = [];
+  static int _runId = -1;
+
+  static void resetHistory(int runId) {
+    if (runId != _runId) {
+      _runId = runId;
+      _taken.clear();
+    }
+  }
+
   static void show(BuildContext context, String rawPool, Function(String) onPick) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
@@ -23,7 +34,16 @@ class WuGuDialog {
           final n = items.length;
           // 牌阵宽度随张数放大，最多一行 5 张
           final perRow = n <= 5 ? n : 5;
-          final width = (perRow * 128 + 60).clamp(360, 720).toDouble();
+          final takenCount = _taken.length;
+          final total = perRow + takenCount;
+          final width = (total * 108 + 80).clamp(380, 860).toDouble();
+
+          void pick(String idx, String desc, String typeKey, String suitKey, String point) {
+            _taken.add(_WuGuTaken(desc, typeKey, suitKey, point));
+            Navigator.of(ctx).pop();
+            onPick(idx);
+          }
+
           return Dialog(
             backgroundColor: Colors.transparent,
             child: Container(
@@ -55,31 +75,42 @@ class WuGuDialog {
                     spacing: 12,
                     runSpacing: 12,
                     alignment: WrapAlignment.center,
-                    children: items.map((it) {
-                      final seg = it.split('|');
-                      final head = seg[0];
-                      if (!head.contains('=')) return const SizedBox();
-                      final eq = head.indexOf('=');
-                      final idx = head.substring(0, eq).trim();
-                      final desc = head.substring(eq + 1).trim();
-                      final typeKey = seg.length > 1 ? seg[1].trim() : '';
-                      final suitKey = seg.length > 2 ? seg[2].trim() : '';
-                      final point = seg.length > 3 ? seg[3].trim() : '';
-                      final isRed = suitKey == 'HEART' || suitKey == 'DIAMOND';
-                      final hasArt = typeKey.isNotEmpty && CardFace.hasArt(typeKey);
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    children: [
+                      // 已经被别人选走的牌：按下去 + 「已选」角标
+                      for (final t in _taken)
+                        _WuGuCard(
+                          typeKey: t.typeKey.isEmpty ? null : t.typeKey,
+                          desc: t.desc,
+                          suitSymbol: _suitSymbol[t.suitKey] ?? '',
+                          points: t.point,
+                          isRed: t.suitKey == 'HEART' || t.suitKey == 'DIAMOND',
+                          taken: true,
+                          onTap: () {},
+                        ),
+                      for (final it in items)
+                        Builder(builder: (_) {
+                          final seg = it.split('|');
+                          final head = seg[0];
+                          if (!head.contains('=')) return const SizedBox();
+                          final eq = head.indexOf('=');
+                          final idx = head.substring(0, eq).trim();
+                          final desc = head.substring(eq + 1).trim();
+                          final typeKey = seg.length > 1 ? seg[1].trim() : '';
+                          final suitKey = seg.length > 2 ? seg[2].trim() : '';
+                          final point = seg.length > 3 ? seg[3].trim() : '';
 
-                      return _WuGuCard(
-                        typeKey: hasArt ? typeKey : null,
-                        desc: desc,
-                        suitSymbol: _suitSymbol[suitKey] ?? '',
-                        points: point,
-                        isRed: isRed,
-                        onTap: () {
-                          Navigator.of(ctx).pop();
-                          onPick(idx);
-                        },
-                      );
-                    }).toList(),
+                          return _WuGuCard(
+                            typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
+                            desc: desc,
+                            suitSymbol: _suitSymbol[suitKey] ?? '',
+                            points: point,
+                            isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
+                            selectedLabel: '选择',
+                            onTap: () => pick(idx, desc, typeKey, suitKey, point),
+                          );
+                        }),
+                    ],
                   ),
                 ],
               ),
@@ -91,12 +122,25 @@ class WuGuDialog {
   }
 }
 
+class _WuGuTaken {
+  final String desc;
+  final String typeKey;
+  final String suitKey;
+  final String point;
+
+  const _WuGuTaken(this.desc, this.typeKey, this.suitKey, this.point);
+}
+
 class _WuGuCard extends StatefulWidget {
   final String? typeKey;
   final String desc;
   final String suitSymbol;
   final String points;
   final bool isRed;
+  /// 已经被选走（按下、灰掉、不可点）
+  final bool taken;
+  /// 右下角的操作标签（「选择」）
+  final String? selectedLabel;
   final VoidCallback onTap;
 
   const _WuGuCard({
@@ -106,6 +150,8 @@ class _WuGuCard extends StatefulWidget {
     required this.points,
     required this.isRed,
     required this.onTap,
+    this.taken = false,
+    this.selectedLabel,
   });
 
   @override
@@ -115,9 +161,8 @@ class _WuGuCard extends StatefulWidget {
 class _WuGuCardState extends State<_WuGuCard> {
   bool _hover = false;
 
-  @override
-  Widget build(BuildContext context) {
-    final card = widget.typeKey != null
+  Widget _buildFace() {
+    return widget.typeKey != null
         ? CardFace(
             typeKey: widget.typeKey!,
             name: widget.desc,
@@ -149,6 +194,49 @@ class _WuGuCardState extends State<_WuGuCard> {
               ),
             ),
           );
+  }
+
+  Widget _badge(String text, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: fg.withValues(alpha: 0.7)),
+      ),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: 10, color: fg, fontWeight: FontWeight.bold, height: 1.2)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 已经被选走的牌：整体按下 6px + 灰度 + 变暗 + 「已选」角标，不可再点
+    if (widget.taken) {
+      return Transform.translate(
+        offset: const Offset(0, 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Opacity(
+              opacity: 0.38,
+              child: ColorFiltered(
+                colorFilter: const ColorFilter.matrix(<double>[
+                  0.35, 0.35, 0.35, 0, 0,
+                  0.35, 0.35, 0.35, 0, 0,
+                  0.35, 0.35, 0.35, 0, 0,
+                  0, 0, 0, 1, 0,
+                ]),
+                child: _buildFace(),
+              ),
+            ),
+            const SizedBox(height: 4),
+            _badge('已选', const Color(0x33FFFFFF), Colors.white38),
+          ],
+        ),
+      );
+    }
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -163,17 +251,29 @@ class _WuGuCardState extends State<_WuGuCard> {
           child: AnimatedScale(
             scale: _hover ? 1.05 : 1.0,
             duration: const Duration(milliseconds: 120),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: _hover ? const Color(0x99FFC94D) : Colors.black45,
-                    blurRadius: _hover ? 16 : 8,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _hover ? const Color(0x99FFC94D) : Colors.black45,
+                        blurRadius: _hover ? 16 : 8,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: card,
+                  child: _buildFace(),
+                ),
+                const SizedBox(height: 4),
+                if (widget.selectedLabel != null)
+                  _badge(widget.selectedLabel!,
+                      _hover ? const Color(0xFFFFC94D) : const Color(0x33FFC94D),
+                      _hover ? Colors.black87 : const Color(0xFFFFC94D))
+                else
+                  const SizedBox(height: 16),
+              ],
             ),
           ),
         ),

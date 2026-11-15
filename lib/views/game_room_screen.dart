@@ -130,6 +130,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   final GlobalKey _centerKey = GlobalKey();
   final List<_FlyingCard> _flying = [];
   int _flyingSeq = 0;
+  /// 席位飘字（掉血 / 回复 / 护甲），直接落在对应武将头顶
+  final List<_SeatFloat> _seatFloats = [];
+  int _seatFloatSeq = 0;
   bool _hasSynced = false;
   DateTime _lastCardPlayedAt = DateTime.fromMillisecondsSinceEpoch(0);
   PlayedCard? _lastTextPlayed;
@@ -168,6 +171,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         TargetZoneDialog.show(context, packet.data, _sendResponse);
         break;
       case Command.ASK_WU_GU:
+        // 同一轮内的多次五谷选牌共享历史：已选走的牌按下去标记「已选」
+        WuGuDialog.resetHistory(_roundNo);
         WuGuDialog.show(context, packet.data, _sendResponse);
         break;
       case Command.ASK_LUCKY:
@@ -221,6 +226,21 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
         if (ChoicePromptDialog.matches(packet.data)) {
           ChoicePromptDialog.show(context, packet.data, (v) => _sendResponse(v));
+        } else if (packet.data.contains("【火攻】请弃置")) {
+          // 火攻第二步：左边展示牌、右边挑同花色弃置
+          final token = packet.data.split('|');
+          if (token.length >= 5) {
+            HuoGongDialog.showDiscardSameSuit(
+              context,
+              shownTypeKey: token[1],
+              shownSuitKey: token[2],
+              shownPoint: token[3],
+              shownName: token[4],
+              handCards: _handCards,
+              onSelect: (idx) => _sendResponse(idx.toString()),
+              onGiveUp: () => _sendResponse('PASS'),
+            );
+          }
         } else if (packet.data.contains("火攻展示")) {
           HuoGongDialog.showSelectCardToExpose(
               context, _handCards, (idx) => _sendResponse(idx.toString()));
@@ -444,6 +464,26 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     setState(() => _flying.remove(f));
   }
 
+  /// 在某个角色头顶飘一条数字（掉血 -1 / 回复 +1 / 护甲 🛡）。找不到人就退回屏幕中央。
+  void _spawnSeatFloat(String playerName, String text, Color color) {
+    final id = _findPlayerIdByName(playerName);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Offset? pos;
+      if (id != null) pos = _stageCenterOf(_seatKeyOf(id));
+      pos ??= _stageCenterOf(_seatKeyOf(widget.playerId));
+      if (pos == null) {
+        _flash(text, color);
+        return;
+      }
+      final f = _SeatFloat(seq: _seatFloatSeq++, pos: pos, text: text, color: color);
+      setState(() => _seatFloats.add(f));
+      Timer(const Duration(milliseconds: 1150), () {
+        if (mounted) setState(() => _seatFloats.remove(f));
+      });
+    });
+  }
+
   Widget _buildFlight(_FlyingCard f) {
     const moveMs = 460.0;
     final total = moveMs + f.delayMs;
@@ -591,13 +631,45 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   // ==================== 状态解析 ====================
 
   void _parseBroadcastLog(String log) {
-    // 伤害 / 回复 / 护甲 飘字
-    final dmg = RegExp(r'受到 (\d+) 点伤害').firstMatch(log);
-    if (dmg != null) _flash('-${dmg.group(1)}', Colors.redAccent);
-    final heal = RegExp(r'回复 (\d+) 点体力').firstMatch(log);
-    if (heal != null) _flash('+${heal.group(1)}', Colors.greenAccent);
-    final shield = RegExp(r'抵消了 (\d+) 点伤害').firstMatch(log);
-    if (shield != null) _flash('🛡${shield.group(1)}', Colors.lightBlueAccent);
+    // 伤害 / 回复 / 护甲 飘字：落在当事人武将卡头上（找不到人再退回屏幕中央）
+    final dmg = RegExp(r'受到\s*(\d+)\s*点(?:传导)?伤害').firstMatch(log);
+    if (dmg != null) {
+      final who = _playerMentioned(log);
+      final color = log.contains('传导') ? const Color(0xFFB39DDB) : Colors.redAccent;
+      if (who != null) {
+        _spawnSeatFloat(who, '-${dmg.group(1)}', color);
+      } else {
+        _flash('-${dmg.group(1)}', color);
+      }
+    }
+    final heal = RegExp(r'回复\s*(\d+)\s*点体力').firstMatch(log);
+    if (heal != null) {
+      final who = _playerMentioned(log);
+      if (who != null) {
+        _spawnSeatFloat(who, '+${heal.group(1)}', Colors.greenAccent);
+      } else {
+        _flash('+${heal.group(1)}', Colors.greenAccent);
+      }
+    }
+    final shield = RegExp(r'抵消了\s*(\d+)\s*点伤害').firstMatch(log);
+    if (shield != null) {
+      final who = _playerMentioned(log);
+      if (who != null) {
+        _spawnSeatFloat(who, '🛡${shield.group(1)}', Colors.lightBlueAccent);
+      } else {
+        _flash('🛡${shield.group(1)}', Colors.lightBlueAccent);
+      }
+    }
+    final armorGain = RegExp(r'获得\s*(\d+)\s*点【护甲】').firstMatch(log);
+    if (armorGain != null) {
+      final who = _playerMentioned(log);
+      if (who != null) {
+        _spawnSeatFloat(who, '+🛡${armorGain.group(1)}', const Color(0xFF64B5F6));
+      } else {
+        _flash('+🛡${armorGain.group(1)}', const Color(0xFF64B5F6));
+      }
+    }
+    _animateCardFeel(log);
 
     if (log.contains("使用了") || log.contains("打出") || log.contains("装备了")) {
       String? cardName;
@@ -708,6 +780,96 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     return null;
   }
 
+  /// 播报里出现的角色名（取最先出现的那一个）
+  String? _playerMentioned(String log) {
+    final candidates = <String>[
+      _heroName,
+      widget.playerName,
+      for (final o in _opponents) o.name,
+      for (final o in _opponents) o.hero,
+    ].where((s) => s.isNotEmpty && s != '未选将').toSet().toList();
+    String? best;
+    var bestIdx = 1 << 30;
+    for (final c in candidates) {
+      final i = log.indexOf(c);
+      if (i >= 0 && i < bestIdx) {
+        bestIdx = i;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /// 让「摸牌 / 弃牌 / 装备」这些播报也飞牌（不只自己，所有人都有）
+  void _animateCardFeel(String log) {
+    final who = _playerMentioned(log);
+    final whoId = who == null ? null : _findPlayerIdByName(who);
+    final isSelf = whoId != null && whoId == widget.playerId;
+
+    // ---- 摸牌 ----
+    final draw = RegExp(r'摸了\s*(\d+)\s*张牌').firstMatch(log);
+    if (draw != null && !isSelf) {
+      final n = (int.tryParse(draw.group(1)!) ?? 1).clamp(1, 5);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || whoId == null) return;
+        final pos = _stageCenterOf(_seatKeyOf(whoId));
+        if (pos == null) return;
+        for (var i = 0; i < n; i++) {
+          _spawnFlight(
+            toPos: pos,
+            dest: 'seat',
+            width: 58,
+            height: 82,
+            delayMs: i * 70,
+            arc: 30,
+          );
+        }
+      });
+    }
+
+    // ---- 弃牌 ----
+    final discard = RegExp(r'弃置(?:了)?\s*(\d+)\s*张').firstMatch(log);
+    if (discard != null && !isSelf) {
+      final n = (int.tryParse(discard.group(1)!) ?? 1).clamp(1, 4);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || whoId == null) return;
+        final pos = _stageCenterOf(_seatKeyOf(whoId));
+        if (pos == null) return;
+        for (var i = 0; i < n; i++) {
+          _spawnFlight(
+            fromPos: pos,
+            dest: 'deck',
+            width: 58,
+            height: 82,
+            delayMs: i * 60,
+            arc: 22,
+          );
+        }
+      });
+    }
+
+    // ---- 装备（别人的装备也要看得见：牌从他席位飞起来 + 席位卡底部条同步） ----
+    final equip = RegExp(r'装备了\s*(?:【(.+?)】|(\S+))').firstMatch(log);
+    if (equip != null && !isSelf) {
+      final name = (equip.group(1) ?? equip.group(2) ?? '').trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || whoId == null) return;
+        final pos = _stageCenterOf(_seatKeyOf(whoId));
+        if (pos == null) return;
+        _spawnFlight(
+          fromPos: pos,
+          toPos: Offset(pos.dx, pos.dy + 40),
+          dest: 'seat',
+          typeKey: CardCatalog.typeKeyOfName(name),
+          name: name,
+          width: 62,
+          height: 88,
+          arc: 12,
+        );
+      });
+    }
+  }
+
   void _parseState(String raw) {
     final prevHandCount = _handCards.length;
     final Map<String, int> prevOppHand = {
@@ -731,14 +893,19 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         _skills = skStr.isEmpty
             ? []
             : skStr.split(';').map((sk) {
-                // 新格式：名字#类型#可用性(1/0)#描述 ；兼容旧格式 名字:类型:描述
+                // 新格式：名字#类型#可用性(1/0)#剩余#上限#描述 ；兼容旧格式 名字:类型:描述
                 if (sk.contains('#')) {
                   final sp = sk.split('#');
+                  final hasCounter = sp.length > 5;
                   return SkillModel(
                       name: sp[0],
                       type: sp.length > 1 ? sp[1] : 'PASSIVE',
                       usable: sp.length > 2 ? sp[2] != '0' : true,
-                      desc: sp.length > 3 ? sp.sublist(3).join('#') : '');
+                      remain: hasCounter ? (int.tryParse(sp[3]) ?? 0) : 0,
+                      cap: hasCounter ? (int.tryParse(sp[4]) ?? 0) : 0,
+                      desc: hasCounter
+                          ? sp.sublist(5).join('#')
+                          : (sp.length > 3 ? sp.sublist(3).join('#') : ''));
                 }
                 final sp = sk.split(':');
                 return SkillModel(
@@ -1211,35 +1378,81 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     });
   }
 
-  /// 响应阶段：这张牌能不能用来响应本次询问（不能的置暗，能用的亮起）。
+  /// 判断这张牌现在能不能用：不能用的一律置暗（响应阶段看能不能响应，出牌阶段看次数/条件）。
   bool _isCardPlayableNow(CardModel card) {
     final prompt = _askPrompt;
-    if (prompt == null || prompt.isEmpty) return true;
-    // 「打出/使用一张【闪】」
-    if (prompt.contains('【闪】') && !prompt.contains('视为【杀】')) {
-      return card.typeKey == 'SHAN';
-    }
-    // 「打出/使用【杀】」
-    if (prompt.contains('打出【杀】') || prompt.contains('一张【杀】') ||
-        prompt.contains('视为【杀】')) {
-      if (card.typeKey == 'SHA' ||
-          card.typeKey == 'FIRE_SHA' ||
-          card.typeKey == 'THUNDER_SHA') {
-        return true;
+    final bool isSha = card.typeKey == 'SHA' ||
+        card.typeKey == 'FIRE_SHA' ||
+        card.typeKey == 'THUNDER_SHA';
+
+    // 选了主动技以后可以用任意牌当技能消耗（或由技能做转化），不做置暗
+    if (_activeSkill != null) {
+      if (_isResponding) {
+        if (prompt != null && prompt.contains('【闪】') && !prompt.contains('视为【杀】')) {
+          // 武圣/龙胆/倾国 之类可以把某些牌当闪用
+          if (_activeSkill == '武圣') return card.isRed;
+          if (_activeSkill == '龙胆' || _activeSkill == '倾国') return true;
+          return card.typeKey == 'SHAN';
+        }
+        if (prompt != null &&
+            (prompt.contains('打出【杀】') ||
+                prompt.contains('一张【杀】') ||
+                prompt.contains('视为【杀】'))) {
+          if (isSha) return true;
+          if (_activeSkill == '武圣') return card.isRed;
+          if (_activeSkill == '龙胆') return card.typeKey == 'SHAN';
+          return false;
+        }
       }
-      // 龙胆：闪可当杀（有蓄力时）
-      if (card.typeKey == 'SHAN' && _skills.any((s) => s.name == '龙胆')) return true;
-      return false;
+      return true;
     }
-    // 「使用【桃】/【酒】」
-    if (prompt.contains('【桃】')) {
-      return card.typeKey == 'TAO' || (card.typeKey == 'JIU' && prompt.contains('【酒】'));
+
+    if (_isResponding && prompt != null && prompt.isNotEmpty) {
+      // 「打出/使用一张【闪】」
+      if (prompt.contains('【闪】') && !prompt.contains('视为【杀】')) {
+        if (card.typeKey == 'SHAN') return true;
+        // 龙胆：杀可当闪
+        return isSha && _skills.any((s) => s.name == '龙胆');
+      }
+      // 「打出/使用【杀】」
+      if (prompt.contains('打出【杀】') ||
+          prompt.contains('一张【杀】') ||
+          prompt.contains('视为【杀】')) {
+        if (isSha) return true;
+        // 龙胆：闪可当杀
+        if (card.typeKey == 'SHAN' && _skills.any((s) => s.name == '龙胆')) return true;
+        return false;
+      }
+      // 「使用【桃】/【酒】」
+      if (prompt.contains('【桃】')) {
+        return card.typeKey == 'TAO' || (card.typeKey == 'JIU' && prompt.contains('【酒】'));
+      }
+      // 「使用【无懈可击】」
+      if (prompt.contains('【无懈可击】')) {
+        return card.typeKey == 'WU_XIE_KE_JI';
+      }
+      return true;
     }
-    // 「使用【无懈可击】」
-    if (prompt.contains('【无懈可击】')) {
-      return card.typeKey == 'WU_XIE_KE_JI';
-    }
+
+    // ---- 自己出牌阶段：不能用的牌直接暗下去 ----
+    if (!_isMyTurn) return true;
+    if (card.typeKey == 'SHAN' || card.typeKey == 'WU_XIE_KE_JI') return false;
+    if (card.typeKey == 'TAO') return _hp < _maxHp;
+    if (isSha) return _shaLeft > 0;
+    if (card.typeKey == 'JIU') return _shaLeft > 0 || _hp < _maxHp;
     return true;
+  }
+
+  /// 出牌阶段剩余可出杀次数（从服务端提示里取，解析失败当作无限）
+  int get _shaLeft => _shaLeftFromPrompt();
+
+  /// 从出牌阶段提示里取「剩余可出杀」
+  int _shaLeftFromPrompt() {
+    final p = _askPrompt;
+    if (p == null) return 99;
+    if (p.contains('剩余可出杀:无限')) return 99;
+    final m = RegExp(r'剩余可出杀:(\d+)').firstMatch(p);
+    return m == null ? 99 : (int.tryParse(m.group(1)!) ?? 99);
   }
 
   /// 长按技能按钮：显示技能详情与当前是否可以发动。
@@ -1783,6 +1996,20 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
               hasRenDeSkill: hasRenDe,
               hasZhiHengSkill: hasZhiHeng,
               hasChuHaiSkill: hasChuHai,
+              hasTieSuoSelected: _selectedIndices.any((i) => _handCards
+                  .any((c) => c.index == i && c.typeKey == 'TIE_SUO_LIAN_HUAN')),
+              onRecastTieSuo: () {
+                // 铁索连环没选目标时点这里 = 重铸（弃置此牌摸一张）
+                final c = _handCards.firstWhere(
+                  (x) =>
+                      x.typeKey == 'TIE_SUO_LIAN_HUAN' &&
+                      _selectedIndices.contains(x.index),
+                  orElse: () => _handCards.firstWhere(
+                      (x) => x.typeKey == 'TIE_SUO_LIAN_HUAN',
+                      orElse: () => _handCards.first),
+                );
+                _sendResponse('TIESUO_RECAST:${c.index}');
+              },
               secondsLeft: _secondsLeft,
               totalSeconds: _countdownTotal,
               isTargetOnly: _isTargetOnlyPrompt,
@@ -1861,7 +2088,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           selectedIndices: _selectedIndices,
                           maxHandCards: _maxHandCards,
                           enabled: _askPrompt != null,
-                          isPlayable: _isResponding ? _isCardPlayableNow : null,
+                          isPlayable: _isCardPlayableNow,
                           onCardTap: (card) {
                             if (_askPrompt == null) return;
                             setState(() {
@@ -1998,10 +2225,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
                         onTap: () {
-                          if (!sk.usable) {
-                            _flash('【${sk.name}】本回合已经发动过了', Colors.orange);
-                            return;
-                          }
+                          // 次数用完的技能按钮已经置暗，点了不做任何事（不再弹「已发动」提示）
+                          if (!sk.usable) return;
                           _onSkillTap(sk.name);
                         },
                         onLongPress: () => _showSkillDesc(sk),
@@ -2041,7 +2266,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                               Text(
                                   !sk.usable
                                       ? '已用'
-                                      : (_isResponding ? '可用' : '发动'),
+                                      : (sk.hasCounter
+                                          ? '${sk.remain}/${sk.cap}'
+                                          : (_isResponding ? '可用' : '发动')),
                                   style: TextStyle(
                                       fontSize: 8.5,
                                       color: !sk.usable
@@ -2243,9 +2470,45 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
             ),
           ),
         ),
-      // 牌滑动层（摸牌 / 装备）
+      // 牌滑动层（摸牌 / 出牌 / 弃牌 / 装备）
       for (final f in _flying) _buildFlight(f),
+      // 席位飘字层（掉血 -1 / 回复 +1 / 护甲 🛡，落在对应武将头上）
+      for (final f in _seatFloats) _buildSeatFloat(f),
     ];
+  }
+
+  Widget _buildSeatFloat(_SeatFloat f) {
+    return Positioned(
+      left: f.pos.dx - 40,
+      top: f.pos.dy - 52,
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          key: ValueKey(f.seq),
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 1100),
+          builder: (_, v, child) => Opacity(
+            opacity: v < 0.75 ? 1.0 : (1.0 - (v - 0.75) / 0.25).clamp(0.0, 1.0),
+            child: Transform.translate(
+              offset: Offset(0, -26 * v),
+              child: Transform.scale(scale: 0.9 + 0.5 * v.clamp(0.0, 0.6), child: child),
+            ),
+          ),
+          child: SizedBox(
+            width: 80,
+            child: Text(
+              f.text,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: f.color,
+                shadows: const [Shadow(color: Colors.black87, blurRadius: 10)],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildLogDrawer() {
@@ -2271,6 +2534,21 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       ),
     );
   }
+}
+
+/// 席位飘字（掉血 / 回复 / 护甲），坐标是舞台内的绝对位置
+class _SeatFloat {
+  final int seq;
+  final Offset pos;
+  final String text;
+  final Color color;
+
+  const _SeatFloat({
+    required this.seq,
+    required this.pos,
+    required this.text,
+    required this.color,
+  });
 }
 
 /// 一张正在飞行的牌（摸牌时 typeKey 为 null → 画牌背）

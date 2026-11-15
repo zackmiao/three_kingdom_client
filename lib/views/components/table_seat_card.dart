@@ -217,16 +217,125 @@ class TableSeatCard extends StatelessWidget {
     );
   }
 
-  Widget _equipLabel() {
-    final list = equips.isEmpty ? <String>[] : equips.split(',');
-    final weapon = list.isNotEmpty && list[0].trim().isNotEmpty && list[0] != '无' ? list[0] : null;
-    final armorName =
-        list.length > 1 && list[1].trim().isNotEmpty && list[1] != '无' ? list[1] : null;
-    if (weapon == null && armorName == null) return const Text('— 无装备 —');
-    final parts = <String>[];
-    if (weapon != null) parts.add('⚔ $weapon');
-    if (armorName != null) parts.add('🛡 $armorName');
-    return Text(parts.join('  '), maxLines: 1, overflow: TextOverflow.ellipsis);
+  /// 统一解析装备栏：
+  /// 服务端对手下发 `WEAPON:青釭剑,ARMOR:八卦阵,DEFENSIVE_HORSE:的卢`，
+  /// 自己的席位卡传的是 `武器名,防具名,+1马,-1马` 的裸名字。
+  List<String> _equipSlots() {
+    final out = List<String>.filled(4, '');
+    if (equips.trim().isEmpty) return out;
+    var sequential = 0;
+    for (final raw in equips.split(',')) {
+      final p = raw.trim();
+      if (p.isEmpty || p == '无') continue;
+      final colon = p.indexOf(':');
+      if (colon > 0) {
+        final slot = p.substring(0, colon).trim().toUpperCase();
+        final value = p.substring(colon + 1).trim();
+        if (value.isEmpty || value == '无') continue;
+        final idx = switch (slot) {
+          'WEAPON' => 0,
+          'ARMOR' => 1,
+          'DEFENSIVE_HORSE' => 2,
+          'OFFENSIVE_HORSE' => 3,
+          _ => -1,
+        };
+        if (idx >= 0) out[idx] = value;
+      } else {
+        if (sequential < 4) out[sequential] = p;
+        sequential++;
+      }
+    }
+    return out;
+  }
+
+  /// 判定区标记：不同延时锦囊用不同底色，尺寸放大到能看清
+  Widget _judgeChip(String name, double k) {
+    late final Color bg;
+    late final Color border;
+    late final String text;
+    late final Color fg;
+    if (name.contains('乐')) {
+      bg = const Color(0xFFE91E63); // 乐不思蜀：粉红
+      border = const Color(0xFFFF80AB);
+      fg = Colors.white;
+      text = '乐';
+    } else if (name.contains('兵粮') || name.contains('断粮')) {
+      bg = const Color(0xFF1E88E5); // 兵粮寸断：蓝
+      border = const Color(0xFF90CAF9);
+      fg = Colors.white;
+      text = '兵粮';
+    } else if (name.contains('闪电')) {
+      bg = const Color(0xFF6A1B9A); // 闪电：紫
+      border = const Color(0xFFBA68C8);
+      fg = Colors.white;
+      text = '雷';
+    } else if (name.contains('铁索')) {
+      bg = const Color(0xFF795548);
+      border = const Color(0xFFBCAAA4);
+      fg = Colors.white;
+      text = '铁索';
+    } else {
+      bg = const Color(0xFFC62828);
+      border = const Color(0xFFEF9A9A);
+      fg = Colors.white;
+      text = name.length > 2 ? name.substring(0, 2) : name;
+    }
+    return Tooltip(
+      message: name,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 4 * k, vertical: 1.5 * k),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [bg, bg.withValues(alpha: 0.72)]),
+          borderRadius: BorderRadius.circular(4 * k),
+          border: Border.all(color: border, width: 1),
+          boxShadow: [
+            BoxShadow(color: bg.withValues(alpha: 0.55), blurRadius: 5 * k, spreadRadius: 0.5),
+          ],
+        ),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 8.5 * k, color: fg, fontWeight: FontWeight.w700, height: 1.1)),
+      ),
+    );
+  }
+
+  Widget _equipLabel(double k) {
+    final slots = _equipSlots();
+    const icons = ['⚔', '🛡', '🐴', '🐎'];
+    const tips = ['武器', '+1 马', '-1 马', '防具'];
+    final shown = <Widget>[];
+    for (var i = 0; i < 4; i++) {
+      if (slots[i].isEmpty) continue;
+      shown.add(Tooltip(
+        message: '${tips[i]}：${slots[i]}',
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(icons[i], style: TextStyle(fontSize: 9 * k)),
+          const SizedBox(width: 1),
+          Text(slots[i],
+              style: TextStyle(
+                  fontSize: 8.5 * k,
+                  color: const Color(0xFFFFE0B2),
+                  fontWeight: FontWeight.w600)),
+        ]),
+      ));
+    }
+    if (shown.isEmpty) {
+      return Text('— 无装备 —',
+          style: TextStyle(fontSize: 8 * k, color: Colors.white24));
+    }
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < shown.length; i++) ...[
+            if (i > 0) SizedBox(width: 5 * k),
+            shown[i],
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -464,7 +573,7 @@ class TableSeatCard extends StatelessWidget {
                         Expanded(
                           child: DefaultTextStyle(
                             style: TextStyle(fontSize: 8 * k, color: Colors.white70),
-                            child: _equipLabel(),
+                            child: _equipLabel(k),
                           ),
                         ),
                         Text(seatChar,
@@ -476,27 +585,15 @@ class TableSeatCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // 判定区
+                // 判定区（大号彩色标记：乐=粉、兵粮=蓝、闪电=紫）
                 if (judges.isNotEmpty)
                   Positioned(
                     left: statusLeft,
                     top: 22 * k,
-                    child: Row(
-                      children: judges
-                          .take(3)
-                          .map((j) => Container(
-                                margin: const EdgeInsets.only(right: 2),
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 2, vertical: 0.5),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xDD6A1B1B),
-                                  borderRadius: BorderRadius.circular(2),
-                                  border: Border.all(color: Colors.deepOrangeAccent, width: 0.6),
-                                ),
-                                child: Text(j.length > 2 ? j.substring(0, 2) : j,
-                                    style: const TextStyle(fontSize: 6.5, color: Colors.white)),
-                              ))
-                          .toList(),
+                    child: Wrap(
+                      spacing: 3 * k,
+                      runSpacing: 2 * k,
+                      children: judges.take(3).map((j) => _judgeChip(j, k)).toList(),
                     ),
                   ),
                 // 阵亡
