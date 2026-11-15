@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -23,3 +24,5 @@ flutter:
   assets:
     - assets/heroes/
     - assets/cards/
+    - assets/audio/voice/
+    - assets/audio/sfx/

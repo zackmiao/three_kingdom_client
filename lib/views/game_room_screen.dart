@@ -10,6 +10,7 @@ import '../models/skill_model.dart';
 import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
+import '../services/audio_service.dart';
 import 'components/action_prompt_bar.dart';
 import 'components/battle_log_view.dart';
 import 'components/card_face.dart';
@@ -49,6 +50,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   // ===== 服务端同步的状态 =====
   String _heroName = "未选将";
+  /// 已经播过出场语音的武将（避免每次同步都念一遍）
+  String _introPlayedHero = "";
   int _hp = 4;
   int _maxHp = 4;
   String _deckInfo = "0/0";
@@ -169,6 +172,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     switch (packet.command) {
       case Command.GAME_OVER:
         _stopCountdown();
+        _playResultAudio(packet.data);
         _showGameOverDialog(packet.data);
         break;
       case Command.ROOM_SYNC:
@@ -204,11 +208,18 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         break;
       case Command.SHOW_JUDGE_RESULT:
         // 判定牌：从牌堆飞一张牌到被判定的角色身上，再弹判定结果
+        AudioService.instance.playSfx('judge');
         _spawnJudgeFlight(packet.data);
         JudgeResultDialog.show(context, packet.data);
         break;
       case Command.CARD_PLAYED:
         _handleCardPlayed(packet.data);
+        break;
+      case Command.CARD_FLOW:
+        _handleCardFlow(packet.data);
+        break;
+      case Command.CARD_REVEALED:
+        _handleCardRevealed(packet.data);
         break;
       case Command.BROADCAST_MSG:
         _parseBroadcastLog(packet.data);
@@ -369,6 +380,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
 
     _lastCardPlayedAt = DateTime.now();
+    // 出牌语音：杀 / 闪 / 桃 / 酒 / 各锦囊都有对应语音，装备等退回气流声
+    AudioService.instance.playCard(cardName);
     final played = PlayedCard(
       name: cardName,
       typeKey: typeKeyRaw.isEmpty ? CardCatalog.typeKeyOfName(cardName) : typeKeyRaw,
@@ -684,9 +697,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   // ==================== 状态解析 ====================
 
   void _parseBroadcastLog(String log) {
+    final audio = AudioService.instance;
     // 伤害 / 回复 / 护甲 飘字：落在当事人武将卡头上（找不到人再退回屏幕中央）
     final dmg = RegExp(r'受到\s*(\d+)\s*点(?:传导)?伤害').firstMatch(log);
     if (dmg != null) {
+      audio.playSfx('damage');
       final who = _playerMentioned(log);
       final color = log.contains('传导') ? const Color(0xFFB39DDB) : Colors.redAccent;
       if (who != null) {
@@ -697,6 +712,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
     final heal = RegExp(r'回复\s*(\d+)\s*点体力').firstMatch(log);
     if (heal != null) {
+      audio.playSfx('heal');
       final who = _playerMentioned(log);
       if (who != null) {
         _spawnSeatFloat(who, '+${heal.group(1)}', Colors.greenAccent);
@@ -706,6 +722,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
     final shield = RegExp(r'抵消了\s*(\d+)\s*点伤害').firstMatch(log);
     if (shield != null) {
+      audio.playSfx('shield');
       final who = _playerMentioned(log);
       if (who != null) {
         _spawnSeatFloat(who, '🛡${shield.group(1)}', Colors.lightBlueAccent);
@@ -715,6 +732,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
     final armorGain = RegExp(r'获得\s*(\d+)\s*点【护甲】').firstMatch(log);
     if (armorGain != null) {
+      audio.playSfx('shield');
       final who = _playerMentioned(log);
       if (who != null) {
         _spawnSeatFloat(who, '+🛡${armorGain.group(1)}', const Color(0xFF64B5F6));
@@ -807,6 +825,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           }
         });
       }
+    }
+
+    // 技能发动：播报「★ X 发动了技能【Y】」时放技能音效 + 语音
+    if (log.contains('发动了技能') || log.contains('发动了【')) {
+      audio.playSfx('skill');
+      audio.playVoice('jineng');
     }
   }
 
@@ -1051,10 +1075,17 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
     _isDead = _hp <= 0;
     _isMyTurn = _turnPlayerId == widget.playerId;
+    // 选好将后念一次出场语音（每位武将一句）
+    if (_heroName.isNotEmpty && _heroName != '未选将' && _heroName != _introPlayedHero) {
+      _introPlayedHero = _heroName;
+      AudioService.instance.playHeroIntro(_heroName);
+    }
     if (_turnPlayerId != _lastTurnId) {
       _lastTurnId = _turnPlayerId;
       if (_turnPlayerId == widget.playerId && _turnPlayerId.isNotEmpty) {
         _showBanner('你的回合');
+        AudioService.instance.playSfx('turn');
+        AudioService.instance.playVoice('wodehuibe');
       }
     }
     setState(() {});
@@ -1333,6 +1364,118 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   void _onCardDroppedToTarget(CardModel card, String targetId) {
     if (!_isMyTurn || _isResponding || _isDiscardPhase) return;
     _sendResponse('${card.index}:$targetId');
+  }
+
+  /// 结算音效：赢了放胜利语音，输了放败北
+  void _playResultAudio(String data) {
+    final audio = AudioService.instance;
+    final win = data.contains('获胜');
+    audio.playVoice(win ? 'shengli' : 'shibai');
+    audio.playSfx(win ? 'win' : 'lose');
+  }
+
+  /// 把牌拖到出牌区：不需要指定目标的牌（装备、无中生有、南蛮…）直接打出，
+  /// 需要目标的牌自动选中并提示去点/拖目标。
+  void _playCardByDrop(CardModel card) {    if (_isDiscardPhase) {
+      setState(() => _selectedIndices
+        ..clear()
+        ..add(card.index));
+      _showToast('已选择【${card.name}】，点「确定」弃置');
+      return;
+    }
+    if (!_isMyTurn && !_isResponding) {
+      _showToast('现在还轮不到你出牌');
+      return;
+    }
+    if (_isCardRequiringTarget(card)) {
+      setState(() => _selectedIndices
+        ..clear()
+        ..add(card.index));
+      _showToast('【${card.name}】需要目标：点圆桌上的角色，或把牌拖到他身上');
+      return;
+    }
+    _sendResponse(card.index.toString());
+  }
+
+  /// 手牌数量变化：别人摸牌 / 失去牌时，牌要从牌堆飞过去或从他的席位飞走
+  void _handleCardFlow(String data) {
+    final seg = data.split('|');
+    if (seg.length < 3) return;
+    final id = seg[0].trim();
+    final delta = int.tryParse(seg[2].trim()) ?? 0;
+    if (id.isEmpty || delta == 0 || id == widget.playerId) return;
+    final n = delta.abs().clamp(1, 5);
+    AudioService.instance
+        .playSfx(delta > 0 ? 'draw' : 'play', volume: 0.6);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pos = _stageCenterOf(_seatKeyOf(id));
+      if (pos == null) return;
+      for (var i = 0; i < n; i++) {
+        _spawnFlight(
+          fromPos: delta < 0 ? pos : null,
+          toPos: delta < 0 ? null : pos,
+          dest: delta < 0 ? 'deck' : 'seat',
+          width: 58,
+          height: 82,
+          delayMs: i * 60,
+          arc: delta < 0 ? 22 : 30,
+        );
+      }
+    });
+  }
+
+  /// 明牌事件（过河拆桥 / 顺手牵羊 / 火攻弃牌）：把具体是哪张牌摆到中央给人看
+  void _handleCardRevealed(String data) {
+    final seg = data.split('|');
+    if (seg.length < 7) return;
+    final ownerId = seg[0].trim();
+    final ownerName = seg[1].trim();
+    final typeKey = seg[2].trim();
+    final suitKey = seg[3].trim();
+    final point = seg[4].trim();
+    final cardName = seg[5].trim();
+    final gained = seg[6].trim() == 'GAIN';
+    // 被拆/被夺的牌也念出牌名，让大家听得见发生了什么
+    AudioService.instance.playCard(cardName);
+
+    final revealed = PlayedCard(
+      name: cardName,
+      typeKey: typeKey,
+      sourceName: ownerName,
+      targetNames: gained ? const ['已被拿走'] : const ['已被弃置'],
+      points: point,
+      suit: suitKey,
+    );
+    setState(() {
+      _shownCards.add(revealed);
+      if (_shownCards.length > 4) _shownCards.removeAt(0);
+    });
+    Future.delayed(const Duration(milliseconds: 2600), () {
+      if (!mounted) return;
+      setState(() => _shownCards.remove(revealed));
+    });
+
+    _showToast(
+        '${gained ? '★' : '★'} $ownerName 的【$cardName${_suitSymbolOf(suitKey)}$point】'
+        '${gained ? '被夺走' : '被拆掉'}了');
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final from = _stageCenterOf(_seatKeyOf(ownerId));
+      if (from == null) return;
+      _spawnFlight(
+        fromPos: from,
+        dest: gained ? 'hand' : 'deck',
+        typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
+        suitSymbol: _suitSymbolOf(suitKey),
+        points: point,
+        isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
+        width: 80,
+        height: 112,
+        arc: 40,
+      );
+    });
   }
 
 
@@ -2177,11 +2320,35 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           // 出牌结算区：放到窗口的视觉正中心略偏下
           // （牌桌可用区在窗口上部 46..~557，居中用 0.5 会偏高，故用 0.70
           //   使卡牌中心落在窗口纵向中心下方约 10px）
+          // 这里同时是「拖牌到前面直接打出」的放置目标
           Align(
             alignment: const Alignment(0, 0.70),
-            child: KeyedSubtree(
-              key: _centerKey,
-              child: CenterStageView(cards: _shownCards),
+            child: DragTarget<CardModel>(
+              onWillAcceptWithDetails: (d) =>
+                  _isMyTurn || _isResponding || _isDiscardPhase,
+              onAcceptWithDetails: (d) => _playCardByDrop(d.data),
+              builder: (ctx, candidates, rejected) {
+                final hot = candidates.isNotEmpty;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: hot ? const Color(0xFFFFC107) : Colors.transparent,
+                        width: 2),
+                    boxShadow: hot
+                        ? const [
+                            BoxShadow(color: Color(0x66FFC107), blurRadius: 22)
+                          ]
+                        : null,
+                  ),
+                  child: KeyedSubtree(
+                    key: _centerKey,
+                    child: CenterStageView(cards: _shownCards),
+                  ),
+                );
+              },
             ),
           ),
           // 他人对我出牌时的红框警示

@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'network/packet.dart';
 import 'network/socket_service.dart';
 import 'network/command.dart';
+import 'services/audio_service.dart';
 import 'views/lobby_screen.dart';
 
 void main() {
+  // 预热音频：提前解压 wav 到临时目录，避免第一声牌音卡顿
+  unawaited(AudioService.instance.init());
   runApp(const ThreeKingdomApp());
 }
 

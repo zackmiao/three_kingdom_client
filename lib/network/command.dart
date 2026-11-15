@@ -30,6 +30,10 @@ enum Command {
     SYNC_STATE,
     // 结构化出牌广播：sourceId|sourceName|typeKey|suitKey|point|cardName|targetId:targetName,...
     CARD_PLAYED,
+    // 手牌数量变化（别人摸牌/失去牌）：playerId|playerName|delta
+    CARD_FLOW,
+    // 明牌事件（过河拆桥/顺手牵羊/火攻）：ownerId|ownerName|typeKey|suitKey|point|cardName|action
+    CARD_REVEALED,
     ASK_ACTION,
     ASK_RESPONSE,
     RESPOND_CARD,
