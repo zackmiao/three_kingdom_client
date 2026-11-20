@@ -166,38 +166,36 @@ class AudioService {
   /// 武将出场语音：heroName 形如「谋曹操」/「刘备」
   Future<void> playHeroIntro(String heroName) async {
     if (heroName.isEmpty) return;
-    final id = heroName.startsWith('谋')
-        ? 'mou_${_heroPinyin(heroName.substring(1))}'
-        : _heroPinyin(heroName);
-    if (id.isEmpty) return;
+    final id = _heroIds[heroName];
+    if (id == null || id.isEmpty) return;
     await playVoice('hero_$id');
   }
 
-  static String _heroPinyin(String name) => _heroIds[name] ?? '';
-
+  /// 武将全名 → 立绘/语音 id（与 assets/heroes、assets/audio/voice 同名）
   static const Map<String, String> _heroIds = {
     '刘备': 'liubei',
     '曹操': 'caocao',
     '孙权': 'sunquan',
     '周处': 'zhouchu',
-    '关羽': 'mou_guanyu',
-    '张辽': 'mou_zhangliao',
-    '袁绍': 'mou_yuanshao',
-    '吕布': 'mou_lvbu',
-    '华雄': 'mou_huaxiong',
-    '张飞': 'mou_zhangfei',
-    '赵云': 'mou_zhaoyun',
-    '甄姬': 'mou_zhenji',
-    '大乔': 'mou_daqiao',
-    '田豫': 'mou_tianyu',
-    '黄忠': 'mou_huangzhong',
-    '陈宫': 'mou_chengong',
-    '周瑜': 'mou_zhouyu',
-    '曹仁': 'mou_caoren',
-    '于禁': 'mou_yujin',
-    '贾诩': 'mou_jiaxu',
-    '马超': 'mou_machao',
-    '曹丕': 'mou_caopi',
-    '张角': 'mou_zhangjiao',
+    '谋关羽': 'mou_guanyu',
+    '谋张辽': 'mou_zhangliao',
+    '谋袁绍': 'mou_yuanshao',
+    '谋吕布': 'mou_lvbu',
+    '谋华雄': 'mou_huaxiong',
+    '谋张飞': 'mou_zhangfei',
+    '谋赵云': 'mou_zhaoyun',
+    '谋甄姬': 'mou_zhenji',
+    '谋大乔': 'mou_daqiao',
+    '谋田豫': 'mou_tianyu',
+    '谋黄忠': 'mou_huangzhong',
+    '谋陈宫': 'mou_chengong',
+    '谋曹操': 'mou_caocao',
+    '谋周瑜': 'mou_zhouyu',
+    '谋曹仁': 'mou_caoren',
+    '谋于禁': 'mou_yujin',
+    '谋贾诩': 'mou_jiaxu',
+    '谋马超': 'mou_machao',
+    '谋曹丕': 'mou_caopi',
+    '谋张角': 'mou_zhangjiao',
   };
 }
