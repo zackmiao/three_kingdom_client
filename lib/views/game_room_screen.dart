@@ -1318,15 +1318,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _sendResponse('CUANQUAN:${_skillParam ?? '1'}');
           return;
         case '成务':
-          if ((_skillParam ?? '0') == '5' || (_skillParam ?? '0') == '6') {
-            _sendResponse('CHENGWU:${_skillParam ?? '0'}');
+          final chengWuType = _skillParam ?? 'SHA';
+          if (chengWuType == 'NAN_MAN_RU_QIN' || chengWuType == 'WAN_JIAN_QI_FA') {
+            _sendResponse('CHENGWU:$chengWuType');
             return;
           }
           if (target == null) {
             _showToast("【成务】请指定一名目标角色");
             return;
           }
-          _sendResponse('CHENGWU:${_skillParam ?? '0'}:$target');
+          _sendResponse('CHENGWU:$chengWuType:$target');
           return;
         default:
           break;
@@ -1692,13 +1693,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 【成务】：选择把扣置牌当作哪一种伤害牌使用。
   void _pickChengWuType() {
     const types = <List<String>>[
-      ['0', '普通【杀】'],
-      ['1', '【火杀】'],
-      ['2', '【雷杀】'],
-      ['3', '【决斗】'],
-      ['4', '【火攻】'],
-      ['5', '【南蛮入侵】（群体，无需指定目标）'],
-      ['6', '【万箭齐发】（群体，无需指定目标）'],
+      ['SHA', '普通【杀】'],
+      ['FIRE_SHA', '【火杀】'],
+      ['THUNDER_SHA', '【雷杀】'],
+      ['DUEL', '【决斗】'],
+      ['HUO_GONG', '【火攻】'],
+      ['NAN_MAN_RU_QIN', '【南蛮入侵】（群体，无需指定目标）'],
+      ['WAN_JIAN_QI_FA', '【万箭齐发】（群体，无需指定目标）'],
     ];
     showDialog(
       context: context,
