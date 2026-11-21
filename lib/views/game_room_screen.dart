@@ -11,6 +11,7 @@ import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
 import '../services/audio_service.dart';
+import '../services/user_service.dart';
 import 'components/action_prompt_bar.dart';
 import 'components/battle_log_view.dart';
 import 'components/card_face.dart';
@@ -25,6 +26,7 @@ import 'dialogs/huogong_dialog.dart';
 import 'dialogs/judge_result_dialog.dart';
 import 'dialogs/lucky_card_dialog.dart';
 import 'dialogs/pindian_dialog.dart';
+import 'dialogs/settings_dialog.dart';
 import 'dialogs/target_zone_dialog.dart';
 import 'dialogs/wugu_dialog.dart';
 import 'lobby_screen.dart';
@@ -551,8 +553,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   Widget _buildFlight(_FlyingCard f) {
-    const moveMs = 460.0;
-    final total = moveMs + f.delayMs;
+    // 设置里的「动画速度」直接作用在飞行时长上（2.0 = 快一倍）
+    final speed = AppSettings.instance.animSpeed.clamp(0.5, 2.0);
+    final moveMs = 460.0 / speed;
+    final delayMs = f.delayMs / speed;
+    final total = moveMs + delayMs;
     final card = f.typeKey == null
         ? _FlightCardBack(width: f.width, height: f.height)
         : CardFace(
@@ -573,7 +578,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       curve: Curves.linear,
       onEnd: () => _removeFlight(f),
       builder: (_, raw, child) {
-        final p = ((raw * total - f.delayMs) / moveMs).clamp(0.0, 1.0);
+        final p = ((raw * total - delayMs) / moveMs).clamp(0.0, 1.0);
         final eased = Curves.easeOutCubic.transform(p);
         final pos = Offset.lerp(f.from, f.to, eased)!;
         final lift = -math.sin(eased * math.pi) * f.arc;
@@ -1036,6 +1041,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                 .map((t) => CardModel.parse(t))
                 .whereType<CardModel>()
                 .toList();
+        // 设置里开了「手牌自动排序」就按点数从大到小（A 最大）重排
+        if (AppSettings.instance.autoSortHand) {
+          _handCards.sort((a, b) => b.pointValue.compareTo(a.pointValue));
+        }
       }
       if (part.startsWith('TURN:')) _turnPlayerId = part.substring(5);
       if (part.startsWith('PHASE:')) _currentPhaseName = part.substring(6);
@@ -1376,7 +1385,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   /// 把牌拖到出牌区：不需要指定目标的牌（装备、无中生有、南蛮…）直接打出，
   /// 需要目标的牌自动选中并提示去点/拖目标。
-  void _playCardByDrop(CardModel card) {    if (_isDiscardPhase) {
+  void _playCardByDrop(CardModel card) {
+    if (_isDiscardPhase) {
       setState(() => _selectedIndices
         ..clear()
         ..add(card.index));
@@ -1394,7 +1404,41 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _showToast('【${card.name}】需要目标：点圆桌上的角色，或把牌拖到他身上');
       return;
     }
+    if (AppSettings.instance.confirmDropPlay) {
+      _confirmDropPlay(card);
+      return;
+    }
     _sendResponse(card.index.toString());
+  }
+
+  /// 设置里开了「拖拽出牌需要确认」时，弹一个轻量确认框
+  Future<void> _confirmDropPlay(CardModel card) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF241D16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0x66FFC107)),
+        ),
+        title: const Text('确认出牌',
+            style: TextStyle(fontSize: 16, color: Color(0xFFFFE0B2))),
+        content: Text('确定要打出【${card.name}${card.suitSymbol}${card.points}】吗？',
+            style: const TextStyle(fontSize: 13, color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('再想想', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('出牌',
+                style: TextStyle(color: Color(0xFFFFC107))),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) _sendResponse(card.index.toString());
   }
 
   /// 手牌数量变化：别人摸牌 / 失去牌时，牌要从牌堆飞过去或从他的席位飞走
@@ -1425,51 +1469,66 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     });
   }
 
-  /// 明牌事件（过河拆桥 / 顺手牵羊 / 火攻弃牌）：把具体是哪张牌摆到中央给人看
+  /// 明牌事件（过河拆桥 / 顺手牵羊 / 火攻弃牌）
+  /// payload: `原主ID|原主名|发起者ID|发起者名|typeKey|suitKey|point|牌名|action`
+  /// 不再弹任何提示框，只在牌桌上显示这张牌 + 把它从一个人那里滑到另一个人那里。
   void _handleCardRevealed(String data) {
     final seg = data.split('|');
-    if (seg.length < 7) return;
+    if (seg.length < 9) return;
     final ownerId = seg[0].trim();
     final ownerName = seg[1].trim();
-    final typeKey = seg[2].trim();
-    final suitKey = seg[3].trim();
-    final point = seg[4].trim();
-    final cardName = seg[5].trim();
-    final gained = seg[6].trim() == 'GAIN';
-    // 被拆/被夺的牌也念出牌名，让大家听得见发生了什么
-    AudioService.instance.playCard(cardName);
+    final actorId = seg[2].trim();
+    final actorName = seg[3].trim();
+    final typeKey = seg[4].trim();
+    final suitKey = seg[5].trim();
+    final point = seg[6].trim();
+    final cardName = seg[7].trim();
+    final gained = seg[8].trim() == 'GAIN';
 
-    final revealed = PlayedCard(
-      name: cardName,
-      typeKey: typeKey,
-      sourceName: ownerName,
-      targetNames: gained ? const ['已被拿走'] : const ['已被弃置'],
-      points: point,
-      suit: suitKey,
-    );
-    setState(() {
-      _shownCards.add(revealed);
-      if (_shownCards.length > 4) _shownCards.removeAt(0);
-    });
-    Future.delayed(const Duration(milliseconds: 2600), () {
-      if (!mounted) return;
-      setState(() => _shownCards.remove(revealed));
-    });
-
-    _showToast(
-        '${gained ? '★' : '★'} $ownerName 的【$cardName${_suitSymbolOf(suitKey)}$point】'
-        '${gained ? '被夺走' : '被拆掉'}了');
+    // 只有「牌的主人」或「拿到牌的人」才有资格看到正面，其他人在牌桌上看到牌背
+    final me = widget.playerId;
+    final faceUp = ownerId == me || actorId == me || actorId.isEmpty;
+    if (faceUp) {
+      AudioService.instance.playCard(cardName);
+      final revealed = PlayedCard(
+        name: cardName,
+        typeKey: typeKey,
+        sourceName: ownerName,
+        targetNames: [gained ? (actorName.isEmpty ? '已被拿走' : '被 $actorName 拿走')
+            : '已被弃置'],
+        points: point,
+        suit: suitKey,
+      );
+      setState(() {
+        _shownCards.add(revealed);
+        if (_shownCards.length > 4) _shownCards.removeAt(0);
+      });
+      Future.delayed(const Duration(milliseconds: 2600), () {
+        if (!mounted) return;
+        setState(() => _shownCards.remove(revealed));
+      });
+    } else {
+      AudioService.instance.playSfx('play', volume: 0.5);
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final from = _stageCenterOf(_seatKeyOf(ownerId));
       if (from == null) return;
+      // 终点：拿到牌的人（就是发起者）→ 自己就飞向手牌区，别人就飞向他的席位；
+      // 被弃置的牌则飞向弃牌堆。
+      Offset? to;
+      if (gained) {
+        to = actorId == me ? _stageCenterOf(_handKey) : _stageCenterOf(_seatKeyOf(actorId));
+        to ??= _stageCenterOf(_deckKey);
+      }
       _spawnFlight(
         fromPos: from,
+        toPos: to,
         dest: gained ? 'hand' : 'deck',
-        typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
-        suitSymbol: _suitSymbolOf(suitKey),
-        points: point,
+        typeKey: faceUp && CardFace.hasArt(typeKey) ? typeKey : null,
+        suitSymbol: faceUp ? _suitSymbolOf(suitKey) : '',
+        points: faceUp ? point : '',
         isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
         width: 80,
         height: 112,
@@ -1973,6 +2032,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       endDrawer: _buildLogDrawer(),
       // 窗口放大（尤其全屏）时整体等比放大，键盘区/卡牌/字号一起变大
       body: ScaledStage(
+        extraScale: AppSettings.instance.uiScale,
         child: Stack(
           key: _stageKey,
           children: [
@@ -2604,7 +2664,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           tool(Icons.sort_by_alpha, '按点数', () {
             setState(() => _handCards.sort((a, b) => a.pointValue.compareTo(b.pointValue)));
           }),
-          tool(Icons.receipt_long, '战况', () => _scaffoldKey.currentState?.openEndDrawer()),
+          if (AppSettings.instance.showBattleLog)
+            tool(Icons.receipt_long, '战况', () => _scaffoldKey.currentState?.openEndDrawer()),
+          tool(Icons.settings, '设置', () => SettingsDialog.show(context)),
         ],
       ),
     );

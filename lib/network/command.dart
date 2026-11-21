@@ -5,6 +5,21 @@ enum Command {
     DISCONNECT,
     BROADCAST_MSG,
 
+    // 注册：data = `用户名|密码`，回复 ACCOUNT_RESULT
+    REGISTER,
+    // 登录：data = `用户名|密码`，回复 ACCOUNT_RESULT
+    LOGIN,
+    // 账号结果：`OK|用户名|头像base64` 或 `FAIL|原因`
+    ACCOUNT_RESULT,
+    // 上传头像：data = 图片 base64，回复 AVATAR_RESULT
+    UPDATE_AVATAR,
+    // 头像上传结果：`OK` 或 `FAIL|原因`
+    AVATAR_RESULT,
+    // 请求某人头像：data = 用户名，回复 AVATAR
+    GET_AVATAR,
+    // 某人头像：`用户名|base64`
+    AVATAR,
+
     CREATE_ROOM,
     JOIN_ROOM,
     LEAVE_ROOM,

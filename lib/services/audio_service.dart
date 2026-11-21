@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 
+import 'user_service.dart';
+
 /// 游戏音效 / 角色语音。
 ///
 /// Windows 上用 `winmm.dll!PlaySound` 直接播 wav（无第三方音频插件依赖）。
@@ -109,6 +111,9 @@ class AudioService {
 
   Future<void> playSfx(String name, {double volume = 1.0}) async {
     if (!_enabled || !_sfx.contains(name)) return;
+    final settings = AppSettings.instance;
+    if (!settings.sfxEnabled || settings.sfxVolume <= 0) return;
+    if (volume * settings.sfxVolume < 0.06) return;
     await init();
     if (!_ready) return;
     // 语音刚播过时，短的点击声让位，避免互相打断
@@ -123,6 +128,8 @@ class AudioService {
 
   Future<void> playVoice(String name) async {
     if (!_enabled || !_voices.contains(name)) return;
+    final settings = AppSettings.instance;
+    if (!settings.voiceEnabled || settings.voiceVolume <= 0) return;
     await init();
     if (!_ready) return;
     final path = await _ensureAsset('$_voiceDir/$name.wav', 'voice_$name.wav');

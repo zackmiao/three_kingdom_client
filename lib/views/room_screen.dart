@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/hero_model.dart';
 import '../models/room_member_model.dart';
 import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
+import '../services/user_service.dart';
 import 'components/hero_portrait.dart';
 import 'dialogs/hero_select_dialog.dart';
 import 'game_room_screen.dart';
@@ -40,6 +42,7 @@ class _RoomScreenState extends State<RoomScreen> {
   List<RoomMemberModel> _members = [];
   List<HeroModel> _heroes = HeroCatalog.instance.heroes;
   final ValueNotifier<List<HeroModel>> _candidates = ValueNotifier<List<HeroModel>>(const []);
+  final Set<String> _avatarRequested = <String>{};
   bool _navigating = false;
 
   static const Map<String, String> _modeLabels = {
@@ -60,6 +63,7 @@ class _RoomScreenState extends State<RoomScreen> {
       if (!mounted) return;
       if (packet.command == Command.ROOM_SYNC) {
         _parseRoomData(packet.data);
+        _requestMissingAvatars();
         setState(() {});
         _maybeGoToGame();
       } else if (packet.command == Command.HERO_LIST) {
@@ -68,10 +72,51 @@ class _RoomScreenState extends State<RoomScreen> {
       } else if (packet.command == Command.HERO_CANDIDATES) {
         // 选将改为在开局后（进入对局界面）进行，房间内只展示候选、不弹窗
         _candidates.value = HeroModel.parseAll(packet.data);
+      } else if (packet.command == Command.AVATAR) {
+        _onAvatar(packet.data);
       } else if (packet.command == Command.LEAVE_ROOM) {
         _backToLobby();
       }
     });
+  }
+
+  /// 房间里有服务器账号的玩家就拉一次头像
+  void _requestMissingAvatars() {
+    for (final m in _members) {
+      if (m.isAi || m.name.isEmpty) continue;
+      if (Account.instance.avatarOf(m.name) != null) continue;
+      if (_avatarRequested.contains(m.name)) continue;
+      _avatarRequested.add(m.name);
+      _socket.sendPacket(Packet(
+        command: Command.GET_AVATAR,
+        senderId: widget.playerId,
+        data: m.name,
+      ));
+    }
+  }
+
+  void _onAvatar(String data) {
+    final seg = data.split('|');
+    if (seg.length < 2 || seg[1].isEmpty) return;
+    try {
+      Account.instance.cacheAvatar(seg[0], base64Decode(seg[1]));
+      setState(() {});
+    } catch (_) {
+      // 头像数据异常就跳过，不影响房间
+    }
+  }
+
+  /// 房间席位上的小头像（没有账号头像时用默认人像）
+  Widget _memberAvatar(String name) {
+    final bytes = Account.instance.avatarOf(name);
+    return CircleAvatar(
+      radius: 11,
+      backgroundColor: const Color(0xFF3C3F4A),
+      backgroundImage: bytes == null ? null : MemoryImage(bytes),
+      child: bytes == null
+          ? const Icon(Icons.person, size: 14, color: Colors.white38)
+          : null,
+    );
   }
 
   void _maybeGoToGame() {
@@ -275,12 +320,21 @@ class _RoomScreenState extends State<RoomScreen> {
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(m.name + (isMe ? " (你)" : ""),
-                                style: TextStyle(
-                                    color: isMe ? Colors.cyanAccent : Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13),
-                                overflow: TextOverflow.ellipsis),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _memberAvatar(m.name),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(m.name + (isMe ? " (你)" : ""),
+                                      style: TextStyle(
+                                          color: isMe ? Colors.cyanAccent : Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13),
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 8),
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),

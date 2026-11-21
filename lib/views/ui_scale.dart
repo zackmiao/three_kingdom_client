@@ -25,14 +25,19 @@ double stageScaleOf(BoxConstraints c) {
 class ScaledStage extends StatelessWidget {
   final Widget child;
 
-  const ScaledStage({super.key, required this.child});
+  /// 额外的界面缩放（1.0 = 设计基准）。> 1 时界面元素变大、视野变窄；
+  /// 由设置界面里的「界面缩放」驱动。
+  final double extraScale;
+
+  const ScaledStage({super.key, required this.child, this.extraScale = 1.0});
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
       // 约束无界（例如被放进滚动视图）时不做缩放，直接交给子级布局
       if (!c.hasBoundedWidth || !c.hasBoundedHeight) return child;
-      final double s = stageScaleOf(c);
+      final double extra = extraScale.clamp(0.85, 1.15);
+      final double s = stageScaleOf(c) * extra;
       if ((s - 1.0).abs() < 0.002) return SizedBox.expand(child: child);
       // 关键：子级逻辑尺寸 = 父级尺寸 / s，再整体缩放 s 倍，
       // 两个轴都恰好铺满，任何宽高比下都不会出现黑边或留白。
