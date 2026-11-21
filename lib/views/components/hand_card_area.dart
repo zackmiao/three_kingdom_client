@@ -14,6 +14,9 @@ class HandCardArea extends StatelessWidget {
   /// 返回 false 的牌会被置暗（当前询问下不能用来响应的牌）。
   final bool Function(CardModel card)? isPlayable;
 
+  /// 身上有【酒】加成时，手牌里的【杀】右上角标注「伤害+1」
+  final bool shaBonus;
+
   const HandCardArea({
     super.key,
     required this.handCards,
@@ -24,6 +27,7 @@ class HandCardArea extends StatelessWidget {
     this.onCardDragging,
     this.onCardDragEnd,
     this.isPlayable,
+    this.shaBonus = false,
   });
 
   static const double cardW = 112;
@@ -44,11 +48,40 @@ class HandCardArea extends StatelessWidget {
           ? null
           : card.asTransformed,
     );
-    if (!card.hasSpecialTag) return face;
+    final bool isSha = card.typeKey == 'SHA' ||
+        card.typeKey == 'FIRE_SHA' ||
+        card.typeKey == 'THUNDER_SHA';
+    final bool showShaBonus = shaBonus && isSha;
+    if (!card.hasSpecialTag && !showShaBonus) return face;
     return Stack(
       children: [
         face,
-        Positioned(left: 4, bottom: 6, child: _specialBadge(card)),
+        if (card.hasSpecialTag)
+          Positioned(left: 4, bottom: 6, child: _specialBadge(card)),
+        if (showShaBonus)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [Color(0xFFFF7043), Color(0xFFD84315)]),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: const Color(0xFFFFE0B2), width: 0.9),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x99FF6D00), blurRadius: 8, spreadRadius: 1),
+                ],
+              ),
+              child: const Text('伤害+1',
+                  style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      height: 1.05,
+                      shadows: [Shadow(color: Colors.black54, blurRadius: 3)])),
+            ),
+          ),
       ],
     );
   }

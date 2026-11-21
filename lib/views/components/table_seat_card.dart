@@ -23,6 +23,9 @@ class TableSeatCard extends StatelessWidget {
   final String? currentPhaseName;
   final bool isSelectedAsTarget;
   final bool isTargetSelectionMode;
+
+  /// 目标在攻击范围之外（选中【杀】时置灰并标注「距离不足」）
+  final bool isOutOfRange;
   final String role;
   final String roleLabel;
   final bool alive;
@@ -59,6 +62,7 @@ class TableSeatCard extends StatelessWidget {
     this.currentPhaseName,
     this.isSelectedAsTarget = false,
     this.isTargetSelectionMode = false,
+    this.isOutOfRange = false,
     this.role = "HIDDEN",
     this.roleLabel = "？",
     this.alive = true,
@@ -537,16 +541,24 @@ class TableSeatCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(9),
               border: Border.all(
-                color: highlight
-                    ? const Color(0xFFFF5252)
-                    : (isCurrentTurn
-                        ? const Color(0xFFFFC94D)
-                        : (drunk ? const Color(0xFFFF4D4D) : const Color(0x66FFD9A0))),
+                color: isOutOfRange
+                    ? const Color(0x55FFFFFF)
+                    : (highlight
+                        ? const Color(0xFFFF5252)
+                        : (isCurrentTurn
+                            ? const Color(0xFFFFC94D)
+                            : (drunk
+                                ? const Color(0xFFFF4D4D)
+                                : const Color(0x66FFD9A0)))),
                 width: highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2),
               ),
               boxShadow: [
-                if (drunk)
-                  const BoxShadow(color: Color(0x99FF2D2D), blurRadius: 22, spreadRadius: 3),
+                if (drunk) ...[
+                  const BoxShadow(
+                      color: Color(0x996B4A00), blurRadius: 22, spreadRadius: 3),
+                  const BoxShadow(
+                      color: Color(0xAAFFB300), blurRadius: 14, spreadRadius: 1),
+                ],
                 if (isCurrentTurn)
                   const BoxShadow(color: Color(0xAAFFB300), blurRadius: 18, spreadRadius: 2),
                 BoxShadow(
@@ -720,6 +732,22 @@ class TableSeatCard extends StatelessWidget {
                                   fontSize: 7.5 * k,
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800)),
+                        ),
+                      if (isOutOfRange)
+                        Container(
+                          margin: EdgeInsets.only(bottom: 2 * k),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 4 * k, vertical: 1.5 * k),
+                          decoration: BoxDecoration(
+                            color: const Color(0xCC2A2A2A),
+                            borderRadius: BorderRadius.circular(3 * k),
+                            border: Border.all(color: Colors.white30, width: 0.9),
+                          ),
+                          child: Text('距离不足',
+                              style: TextStyle(
+                                  fontSize: 7.5 * k,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w700)),
                         ),
                       if (displayMarks.isNotEmpty)
                         Wrap(

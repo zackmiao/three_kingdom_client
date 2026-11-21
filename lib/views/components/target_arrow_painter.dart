@@ -2,17 +2,62 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// 攻击指示：从出牌者卡片中心射向目标的橙金色发光光束。
+/// 攻击指示：从出牌者卡片中心射向目标的发光光束。
+///
+/// [nature] 决定光束配色：普通【杀】赤红、【火杀】炽橙、【雷杀】紫蓝，
+/// 其它牌（桃/锦囊等）沿用橙金色。
 class TargetArrowPainter extends CustomPainter {
   final Offset? fromOffset;
   final List<Offset> toOffsets;
+  final String nature;
 
-  TargetArrowPainter({this.fromOffset, required this.toOffsets});
+  TargetArrowPainter({
+    this.fromOffset,
+    required this.toOffsets,
+    this.nature = 'OTHER',
+  });
+
+  static const Color _shaGlow = Color(0x55FF3020);
+  static const Color _fireGlow = Color(0x66FF9100);
+  static const Color _thunderGlow = Color(0x665C6BC0);
+  static const Color _otherGlow = Color(0x55FFB300);
+
+  (Color, Color, Color) get _palette {
+    switch (nature) {
+      case 'SHA':
+        return (const Color(0xFFFF8A80), const Color(0xFFD50000),
+            const Color(0xFFFF5252));
+      case 'FIRE':
+        return (const Color(0xFFFFE082), const Color(0xFFFF6D00),
+            const Color(0xFFFFAB40));
+      case 'THUNDER':
+        return (const Color(0xFFB3E5FC), const Color(0xFF5C6BC0),
+            const Color(0xFF8E9BFF));
+      default:
+        return (const Color(0xFFFFE082), const Color(0xFFFF8F00),
+            const Color(0xFFFFC107));
+    }
+  }
+
+  Color get _glowColor {
+    switch (nature) {
+      case 'SHA':
+        return _shaGlow;
+      case 'FIRE':
+        return _fireGlow;
+      case 'THUNDER':
+        return _thunderGlow;
+      default:
+        return _otherGlow;
+    }
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final from = fromOffset;
     if (from == null || toOffsets.isEmpty) return;
+
+    final (coreA, coreB, tipColor) = _palette;
 
     for (final to in toOffsets) {
       final delta = to - from;
@@ -27,19 +72,18 @@ class TargetArrowPainter extends CustomPainter {
         start,
         end,
         Paint()
-          ..color = const Color(0x55FFB300)
+          ..color = _glowColor
           ..strokeWidth = 9
           ..strokeCap = StrokeCap.round
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
       );
-      // 主光束（橙金渐变）
+      // 主光束（属性渐变）
       canvas.drawLine(
         start,
         end,
         Paint()
-          ..shader = const LinearGradient(
-            colors: [Color(0xFFFFE082), Color(0xFFFF8F00)],
-          ).createShader(Rect.fromPoints(start, end))
+          ..shader = LinearGradient(colors: [coreA, coreB])
+              .createShader(Rect.fromPoints(start, end))
           ..strokeWidth = 3.2
           ..strokeCap = StrokeCap.round,
       );
@@ -57,10 +101,7 @@ class TargetArrowPainter extends CustomPainter {
         ..lineTo(p2.dx, p2.dy)
         ..lineTo(p3.dx, p3.dy)
         ..close();
-      canvas.drawPath(
-        tip,
-        Paint()..color = const Color(0xFFFFC107),
-      );
+      canvas.drawPath(tip, Paint()..color = tipColor);
       canvas.drawPath(
         tip,
         Paint()
@@ -74,7 +115,7 @@ class TargetArrowPainter extends CustomPainter {
           start,
           6,
           Paint()
-            ..color = const Color(0xFFFFD54F)
+            ..color = tipColor
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
       canvas.drawCircle(start, 2.6, Paint()..color = Colors.white);
       // 目标光点
@@ -82,7 +123,7 @@ class TargetArrowPainter extends CustomPainter {
           end,
           7,
           Paint()
-            ..color = const Color(0x66FF6D00)
+            ..color = _glowColor
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
     }
   }
@@ -90,6 +131,7 @@ class TargetArrowPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant TargetArrowPainter oldDelegate) {
     return oldDelegate.fromOffset != fromOffset ||
+        oldDelegate.nature != nature ||
         oldDelegate.toOffsets.length != toOffsets.length ||
         (oldDelegate.toOffsets.isNotEmpty &&
             toOffsets.isNotEmpty &&

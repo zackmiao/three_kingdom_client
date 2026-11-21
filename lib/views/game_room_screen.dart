@@ -112,6 +112,21 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   List<String> _activeCardTargetNames = [];
   Timer? _cardDisplayTimer;
 
+  /// 当前结算中牌的属性：SHA / FIRE / THUNDER / OTHER（决定攻击光束配色）
+  String _activeNature = 'OTHER';
+
+  /// 出牌代次：用于忽略上一张牌遗留的延迟动画
+  int _cardGen = 0;
+
+  /// 本次【杀】已被【闪】抵消（中央盖「已抵消」印章）
+  bool _dodgedStamp = false;
+
+  /// 正在等待目标响应【闪】
+  bool _waitingForDodge = false;
+
+  /// 群体锦囊横幅（南蛮入侵 / 万箭齐发）
+  String? _aoeBanner;
+
   bool _isZhangBaMode = false;
   bool _isRenDeMode = false;
   bool _isZhiHengMode = false;
@@ -426,6 +441,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       points: point.isEmpty ? null : point,
     );
 
+    final resolvedTypeKey =
+        typeKeyRaw.isEmpty ? (CardCatalog.typeKeyOfName(cardName) ?? '') : typeKeyRaw;
+    final nature = _natureOf(resolvedTypeKey);
+    final gen = ++_cardGen;
     setState(() {
       // 同一次出牌可能先到中文播报、后到结构化广播：把猜出来的那张撤掉，避免中央重复
       final guess = _lastTextPlayed;
@@ -437,12 +456,40 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       }
       _activeCardSourceId = sourceId.isEmpty ? _findPlayerIdByName(sourceName) : sourceId;
       _activeCardTargetNames = List<String>.from(targetNames);
-      _activeCardTargetIds = List<String>.from(targetIds);
+      _activeNature = nature;
+      // 目标光束逐个点亮，形成「按座次依次扫射」的节奏
+      _activeCardTargetIds = <String>[];
+      _dodgedStamp = false;
+      _waitingForDodge = _isShaNature(nature) && targetIds.isNotEmpty;
       _shownCards.add(played);
       while (_shownCards.length > 4) {
         _shownCards.removeAt(0);
       }
     });
+    for (var i = 0; i < targetIds.length; i++) {
+      Future.delayed(Duration(milliseconds: 120 * i), () {
+        if (!mounted || gen != _cardGen) return;
+        setState(() => _activeCardTargetIds.add(targetIds[i]));
+      });
+    }
+    if (_waitingForDodge) {
+      Timer(const Duration(milliseconds: 2600), () {
+        if (mounted) setState(() => _waitingForDodge = false);
+      });
+    }
+    // 群体锦囊：屏幕上方展开横幅（战象奔腾 / 箭雨阵）
+    String? bannerText;
+    if (resolvedTypeKey == 'NAN_MAN_RU_QIN') bannerText = '🐘 南蛮入侵';
+    if (resolvedTypeKey == 'WAN_JIAN_QI_FA') bannerText = '🏹 万箭齐发';
+    if (resolvedTypeKey == 'TAO_YUAN_JIE_YI') bannerText = '🌸 桃园结义';
+    if (bannerText != null) {
+      setState(() => _aoeBanner = bannerText);
+      Timer(const Duration(milliseconds: 1700), () {
+        if (mounted && _aoeBanner == bannerText) {
+          setState(() => _aoeBanner = null);
+        }
+      });
+    }
     Timer(const Duration(milliseconds: 3400), () {
       if (mounted) setState(() => _shownCards.remove(played));
     });
@@ -482,6 +529,45 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   // ==================== 牌滑动动画 ====================
+
+  /// 由牌的类型键推导属性（决定攻击光束的颜色：赤红 / 炽橙 / 紫蓝）
+  String _natureOf(String typeKey) {
+    switch (typeKey) {
+      case 'FIRE_SHA':
+        return 'FIRE';
+      case 'THUNDER_SHA':
+        return 'THUNDER';
+      case 'SHA':
+        return 'SHA';
+      default:
+        return 'OTHER';
+    }
+  }
+
+  /// 是否是【杀】类（普通杀 / 火杀 / 雷杀）
+  bool _isShaNature(String nature) =>
+      nature == 'SHA' || nature == 'FIRE' || nature == 'THUNDER';
+
+  /// 从「杀【黑桃5】」这类播报文本里还原牌的类型键（用于飞行卡面）
+  String _typeKeyOfLabel(String label) {
+    final cleaned = label.replaceAll(RegExp(r'【.*?】'), '').trim();
+    final key = CardCatalog.typeKeyOfName(cleaned.isEmpty ? label : cleaned);
+    return key ?? 'SHA';
+  }
+
+  /// 属性对应的主色（用于光束、飘字与提示）
+  static Color _natureColor(String nature) {
+    switch (nature) {
+      case 'SHA':
+        return const Color(0xFFFF5252);
+      case 'FIRE':
+        return const Color(0xFFFF9100);
+      case 'THUNDER':
+        return const Color(0xFF8E9BFF);
+      default:
+        return const Color(0xFFFFC107);
+    }
+  }
 
   /// 取某个控件在战局舞台坐标系里的中心点（ScaledStage 内部空间）
   Offset? _stageCenterOf(GlobalKey key) {
@@ -736,6 +822,68 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   void _parseBroadcastLog(String log) {
     final audio = AudioService.instance;
+    // 【决斗】轮流出杀：每次有人打出【杀】，从该玩家席位飞一张【杀】到中央
+    final duelPlay = RegExp(r'^(.+?)\s*打出\s*(.+?)继续决斗。').firstMatch(log);
+    if (duelPlay != null) {
+      final who = duelPlay.group(1)!.trim();
+      final label = duelPlay.group(2)!.trim();
+      audio.playSfx('play', volume: 0.8);
+      _spawnSeatFloat(who, '斩！', const Color(0xFFFFAB40));
+      final id = _playerMentioned(who);
+      final seatKey = id == null ? null : _seatKeys[id];
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final from = seatKey == null ? null : _stageCenterOf(seatKey);
+        _spawnFlight(
+          fromPos: from,
+          dest: 'center',
+          typeKey: _typeKeyOfLabel(label),
+          name: label.replaceAll(RegExp(r'【.*?】'), ''),
+          width: 72,
+          height: 102,
+          arc: 40,
+        );
+      });
+    }
+
+    // 防具触发提示：八卦阵 / 仁王盾 / 藤甲 / 白银狮子
+    for (final entry in const {
+      '【八卦阵】': '八卦阵判定',
+      '【仁王盾】': '仁王盾生效',
+      '【藤甲】': '藤甲生效',
+      '【白银狮子】': '白银狮子',
+    }.entries) {
+      if (log.contains(entry.key)) {
+        final who = _playerMentioned(log);
+        audio.playSfx('shield', volume: 0.7);
+        if (who != null) {
+          _spawnSeatFloat(who, entry.value, const Color(0xFF90CAF9));
+        }
+        break;
+      }
+    }
+
+    // 【闪】抵消：中央盖「已抵消」印章，攻击光束同时消散
+    if (log.contains('躲避了攻击')) {
+      final who = _playerMentioned(log);
+      audio.playSfx('shield');
+      setState(() {
+        _dodgedStamp = true;
+        _waitingForDodge = false;
+        _activeCardTargetIds.clear();
+      });
+      if (who != null) {
+        _spawnSeatFloat(who, '已抵消', const Color(0xFF80DEEA));
+      }
+      Timer(const Duration(milliseconds: 1400), () {
+        if (mounted) setState(() => _dodgedStamp = false);
+      });
+    }
+    if (log.contains('伤害') || log.contains('防止')) {
+      if (_waitingForDodge && mounted) {
+        setState(() => _waitingForDodge = false);
+      }
+    }
     // 伤害 / 回复 / 护甲 飘字：落在当事人武将卡头上（找不到人再退回屏幕中央）
     final dmg = RegExp(r'受到\s*(\d+)\s*点(?:传导)?伤害').firstMatch(log);
     if (dmg != null) {
@@ -2579,9 +2727,19 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
       Widget seatWidget(OpponentModel o) {
         final isOppTurn = _turnPlayerId == o.id;
+        // 选中【杀】类牌时，距离超出攻击范围的目标置灰并标注「距离不足」
+        final bool selectingSha = isTargetSelecting &&
+            _selectedIndices.any((i) => _handCards.any((c) =>
+                c.index == i &&
+                (c.typeKey == 'SHA' ||
+                    c.typeKey == 'FIRE_SHA' ||
+                    c.typeKey == 'THUNDER_SHA')));
+        final bool outOfRange =
+            selectingSha && o.alive && o.distance > _attackRange;
         return TableSeatCard(
           cardKey: ValueKey(o.id),
           id: o.id,
+          isOutOfRange: outOfRange,
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -2636,7 +2794,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         children: [
           Positioned.fill(
             child: CustomPaint(
-              painter: TargetArrowPainter(fromOffset: beamFrom, toOffsets: beamTo),
+              painter: TargetArrowPainter(
+                fromOffset: beamFrom,
+                toOffsets: beamTo,
+                nature: _activeNature,
+              ),
             ),
           ),
           for (final e in pos.entries)
@@ -2675,14 +2837,84 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           ]
                         : null,
                   ),
-                  child: KeyedSubtree(
-                    key: _centerKey,
-                    child: CenterStageView(cards: _shownCards),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          KeyedSubtree(
+                            key: _centerKey,
+                            child: CenterStageView(cards: _shownCards),
+                          ),
+                          if (_dodgedStamp) _buildDodgeStamp(),
+                        ],
+                      ),
+                      if (_waitingForDodge) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xCC2B2118),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: _natureColor(_activeNature)
+                                    .withValues(alpha: 0.7)),
+                          ),
+                          child: Text(
+                            '等待 ${_activeCardTargetNames.isEmpty ? '目标' : _activeCardTargetNames.join('、')} 响应【闪】…',
+                            style: TextStyle(
+                              color: _natureColor(_activeNature),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 );
               },
             ),
           ),
+          // 群体锦囊横幅
+          if (_aoeBanner != null)
+            Positioned(
+              top: 34,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                          colors: [Color(0xCC8D6E1F), Color(0xCC3E2723)]),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: const Color(0xFFFFD54F), width: 1.6),
+                      boxShadow: const [
+                        BoxShadow(
+                            color: Color(0x99FFB300),
+                            blurRadius: 24,
+                            spreadRadius: 2),
+                      ],
+                    ),
+                    child: Text(
+                      _aoeBanner!,
+                      style: const TextStyle(
+                        color: Color(0xFFFFF3CD),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           // 他人对我出牌时的红框警示
           if (_activeCardTargetIds.contains(widget.playerId))
             Positioned.fill(
@@ -2701,6 +2933,35 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   // ---------- 底部操作区 ----------
+
+  /// 中央结算区的「已抵消」印章（青白描边、微倾）
+  Widget _buildDodgeStamp() {
+    return IgnorePointer(
+      child: Transform.rotate(
+        angle: -0.18,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFF80DEEA), width: 3),
+            borderRadius: BorderRadius.circular(8),
+            color: const Color(0x3300BCD4),
+            boxShadow: const [
+              BoxShadow(color: Color(0x6600BCD4), blurRadius: 18),
+            ],
+          ),
+          child: const Text(
+            '已 抵 消',
+            style: TextStyle(
+              color: Color(0xFF80DEEA),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 4,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildBottomBar(bool hasZhangBa, bool hasRenDe, bool hasZhiHeng, bool hasChuHai) {
     final overLimit = _maxHandCards > 0 && _handCards.length > _maxHandCards;
@@ -2826,6 +3087,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           maxHandCards: _maxHandCards,
                           enabled: _askPrompt != null,
                           isPlayable: _isCardPlayableNow,
+                          shaBonus: _myMarks.any((m) => m.contains('酒')),
                           onCardTap: (card) {
                             if (_askPrompt == null) return;
                             setState(() {
