@@ -1300,6 +1300,34 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           }
           _sendResponse('SHILONG:$target');
           return;
+        case '推弑':
+          if (target == null) {
+            _showToast("【推弑】请指定一名没有【镇主】的角色进行拼点");
+            return;
+          }
+          _sendResponse('TUISHI:$target');
+          return;
+        case '筹伐':
+          if (target == null) {
+            _showToast("【筹伐】请指定一名有手牌的角色");
+            return;
+          }
+          _sendResponse('CHOUFA:$target');
+          return;
+        case '篡权':
+          _sendResponse('CUANQUAN:${_skillParam ?? '1'}');
+          return;
+        case '成务':
+          if ((_skillParam ?? '0') == '5' || (_skillParam ?? '0') == '6') {
+            _sendResponse('CHENGWU:${_skillParam ?? '0'}');
+            return;
+          }
+          if (target == null) {
+            _showToast("【成务】请指定一名目标角色");
+            return;
+          }
+          _sendResponse('CHENGWU:${_skillParam ?? '0'}:$target');
+          return;
         default:
           break;
       }
@@ -1562,6 +1590,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _pickSongCost();
       return;
     }
+    if (name == '篡权') {
+      _pickCuanQuanAura();
+      return;
+    }
+    if (name == '成务') {
+      _pickChengWuType();
+      return;
+    }
     setState(() {
       _activeSkill = _activeSkill == name ? null : name;
       _selectedIndices.clear();
@@ -1600,6 +1636,98 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                     });
                   },
                   child: Text(suits[i], style: const TextStyle(color: Colors.white)),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  /// 【篡权】：选择要开启的全局光环。
+  void _pickCuanQuanAura() {
+    const options = <List<String>>[
+      ['0', '① 专政：全员体力调为 1、清空护盾；除司马昭外使用锦囊需额外弃一张手牌'],
+      ['1', '② 群起：全员体力上限调为 1 并获得等量护盾；全场所有伤害 +1'],
+    ];
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF23242E),
+        title: const Text('【篡权】开启哪一种光环？',
+            style: TextStyle(
+                color: Colors.amberAccent, fontSize: 15, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(options.length, (i) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: SizedBox(
+                width: 420,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF343748),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    setState(() {
+                      _skillParam = options[i][0];
+                      _activeSkill = '篡权';
+                      _selectedIndices.clear();
+                      _selectedTargetIds.clear();
+                    });
+                  },
+                  child: Text(options[i][1],
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  /// 【成务】：选择把扣置牌当作哪一种伤害牌使用。
+  void _pickChengWuType() {
+    const types = <List<String>>[
+      ['0', '普通【杀】'],
+      ['1', '【火杀】'],
+      ['2', '【雷杀】'],
+      ['3', '【决斗】'],
+      ['4', '【火攻】'],
+      ['5', '【南蛮入侵】（群体，无需指定目标）'],
+      ['6', '【万箭齐发】（群体，无需指定目标）'],
+    ];
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF23242E),
+        title: const Text('【成务】当作哪一种伤害牌使用？',
+            style: TextStyle(
+                color: Colors.amberAccent, fontSize: 15, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(types.length, (i) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF343748)),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    setState(() {
+                      _skillParam = types[i][0];
+                      _activeSkill = '成务';
+                      _selectedIndices.clear();
+                      _selectedTargetIds.clear();
+                    });
+                  },
+                  child: Text(types[i][1],
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5)),
                 ),
               ),
             );
