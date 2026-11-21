@@ -2889,6 +2889,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           id: o.id,
           isOutOfRange: outOfRange,
           isHitFlash: _hitSeats.contains(o.id),
+          isDying: o.alive && o.hp <= 0,
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -3504,6 +3505,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                       child: TableSeatCard(
                         id: widget.playerId,
                         isHitFlash: _hitSeats.contains(widget.playerId),
+                        isDying: _hp <= 0,
                         name: widget.playerName,
                         hero: _heroName,
                         hp: _hp,

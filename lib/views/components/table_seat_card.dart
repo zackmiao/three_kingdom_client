@@ -29,6 +29,9 @@ class TableSeatCard extends StatelessWidget {
 
   /// 刚刚受到伤害：武将卡边框与光晕短暂闪红
   final bool isHitFlash;
+
+  /// 濒死求桃中（头像压灰 + 红字警示）
+  final bool isDying;
   final String role;
   final String roleLabel;
   final bool alive;
@@ -67,6 +70,7 @@ class TableSeatCard extends StatelessWidget {
     this.isTargetSelectionMode = false,
     this.isOutOfRange = false,
     this.isHitFlash = false,
+    this.isDying = false,
     this.role = "HIDDEN",
     this.roleLabel = "？",
     this.alive = true,
@@ -732,6 +736,42 @@ class TableSeatCard extends StatelessWidget {
                       ),
                       child: Text('背面',
                           style: TextStyle(fontSize: 7 * k, color: Colors.white)),
+                    ),
+                  ),
+                // 濒死求桃：整张牌压灰 + 红字警示
+                if (isDying)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0x77000000),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xE6B71C1C),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: const Color(0xFFFF8A80), width: 1.2),
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Color(0x99FF1744),
+                                    blurRadius: 16,
+                                    spreadRadius: 2),
+                              ],
+                            ),
+                            child: Text('濒死求桃',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11 * k,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1)),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 // 左上信息列：扣置牌数量 + 标记（社/弑等）+ 判定区，自上而下自然排布避免互相压字
