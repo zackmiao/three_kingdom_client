@@ -33,6 +33,12 @@ class TableSeatCard extends StatelessWidget {
   final bool compact; // 紧凑模式（主视角右下角使用）
   /// 酒加成（>0 时武将牌泛血色红光，表示下一张【杀】伤害 +N）
   final int wineBonus;
+  /// 当前势力（WEI/QUN/SHU/WU/SHEN）：优先于按武将名猜测，支持【篡权】实时变身。
+  final String faction;
+  /// 护盾值（先于护甲承伤），显示在体力勾玉上方。
+  final int shield;
+  /// 武将牌上扣置的牌数量（【弑龙】【成务】），左上角显示「扣:N」。
+  final int exileCount;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Function(CardModel droppedCard, String targetId)? onCardDropped;
@@ -63,6 +69,9 @@ class TableSeatCard extends StatelessWidget {
     this.seatNo = 1,
     this.compact = false,
     this.wineBonus = 0,
+    this.faction = "",
+    this.shield = 0,
+    this.exileCount = 0,
     this.onTap,
     this.onLongPress,
     this.onCardDropped,
@@ -136,6 +145,42 @@ class TableSeatCard extends StatelessWidget {
     return '群';
   }
 
+  /// 势力中文（服务端下发 WEI / QUN / SHU / WU / SHEN）
+  static String factionCn(String f) {
+    switch (f.toUpperCase()) {
+      case 'WEI':
+        return '魏';
+      case 'SHU':
+        return '蜀';
+      case 'WU':
+        return '吴';
+      case 'QUN':
+        return '群';
+      case 'SHEN':
+        return '神';
+      default:
+        return f.isEmpty ? '' : f;
+    }
+  }
+
+  /// 势力配色：魏蓝 / 群灰金（【篡权】变身）/ 蜀红 / 吴绿 / 神紫
+  static Color factionColor(String f) {
+    switch (f.toUpperCase()) {
+      case 'WEI':
+        return const Color(0xFF3D6DB5);
+      case 'SHU':
+        return const Color(0xFFC0392B);
+      case 'WU':
+        return const Color(0xFF2E8B57);
+      case 'QUN':
+        return const Color(0xFF9E8B5A);
+      case 'SHEN':
+        return const Color(0xFF7E57C2);
+      default:
+        return const Color(0xFF6D6D6D);
+    }
+  }
+
   /// 竖向勾玉：颜色随血量比例变化
   Widget _hpDotsVertical(double k) {
     final ratio = maxHp <= 0 ? 0.0 : hp / maxHp;
@@ -200,6 +245,42 @@ class TableSeatCard extends StatelessWidget {
     );
   }
 
+  /// 护盾徽章：体力勾玉上方、护甲徽章之上（护盾先于护甲承伤）
+  Widget _shieldBadge(double k) {
+    return Container(
+      width: 20 * k,
+      margin: EdgeInsets.only(bottom: 3 * k),
+      padding: EdgeInsets.symmetric(vertical: 1 * k),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFB3E5FC), Color(0xFF0288D1)],
+        ),
+        borderRadius: BorderRadius.circular(4 * k),
+        border: Border.all(color: Colors.white, width: 0.9),
+        boxShadow: [
+          BoxShadow(
+              color: const Color(0xFF4FC3F7).withValues(alpha: 0.75),
+              blurRadius: 7 * k,
+              spreadRadius: 1),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('🛡️', style: TextStyle(fontSize: 7.5 * k, height: 1.05)),
+          Text('$shield',
+              style: TextStyle(
+                  fontSize: 9.5 * k,
+                  height: 1.0,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+
   static String _suitGlyph(String key) {
     switch (key) {
       case 'SPADE':
@@ -215,7 +296,12 @@ class TableSeatCard extends StatelessWidget {
     }
   }
 
-  Widget _strip(double k) {    final force = guessForce(hero.replaceFirst('谋', ''));
+  Widget _strip(double k) {
+    final force = faction.isNotEmpty
+        ? factionCn(faction)
+        : guessForce(hero.replaceFirst('谋', ''));
+    final forceColor =
+        faction.isNotEmpty ? factionColor(faction) : HeroModel.forceColor(force);
     return Container(
       width: 24 * k,
       decoration: BoxDecoration(
@@ -223,7 +309,7 @@ class TableSeatCard extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            HeroModel.forceColor(force).withValues(alpha: 0.85),
+            forceColor.withValues(alpha: 0.85),
             Colors.black.withValues(alpha: 0.75),
           ],
         ),
@@ -235,7 +321,7 @@ class TableSeatCard extends StatelessWidget {
           Container(
             width: 24 * k,
             height: 22 * k,
-            color: HeroModel.forceColor(force),
+            color: forceColor,
             child: Center(
               child: Text(force,
                   style: TextStyle(
@@ -267,6 +353,7 @@ class TableSeatCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (shield > 0) _shieldBadge(k),
                 if (armor > 0) _armorBadge(k),
                 _hpDotsVertical(k),
               ],
@@ -306,6 +393,54 @@ class TableSeatCard extends StatelessWidget {
       }
     }
     return out;
+  }
+
+  /// 标记徽章：社=金色、弑=赤红、颂=紫、酒=暗红、烈弓=青，其余沿用棕色
+  Widget _markChip(String label, double k) {
+    String text = label;
+    late Color bg;
+    late Color border;
+    if (label.startsWith('社')) {
+      final n = label.contains('*') ? label.split('*').last : '1';
+      text = '社×$n';
+      bg = const Color(0xFFC9A227); // 金色：使命进度
+      border = const Color(0xFFFFE082);
+    } else if (label.startsWith('弑')) {
+      text = '弑';
+      bg = const Color(0xFFD32F2F); // 赤红：亲手造就的「弑」
+      border = const Color(0xFFFF8A80);
+    } else if (label.startsWith('颂')) {
+      final n = label.contains('*') ? label.split('*').last : '1';
+      text = '颂×$n';
+      bg = const Color(0xFF7E57C2);
+      border = const Color(0xFFB39DDB);
+    } else if (label.startsWith('🍶')) {
+      bg = const Color(0xFF8E2B2B);
+      border = const Color(0xFFFF7A7A);
+    } else if (label.startsWith('烈弓')) {
+      bg = const Color(0xFF00796B);
+      border = const Color(0xFF4DB6AC);
+    } else {
+      bg = const Color(0xCC8D2F00);
+      border = const Color(0x66FFCC80);
+    }
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 3.2 * k, vertical: 1 * k),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [bg, bg.withValues(alpha: 0.78)]),
+        borderRadius: BorderRadius.circular(3 * k),
+        border: Border.all(color: border, width: 0.8),
+        boxShadow: [
+          BoxShadow(color: bg.withValues(alpha: 0.55), blurRadius: 4 * k, spreadRadius: 0.3),
+        ],
+      ),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: 7.5 * k,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              height: 1.05)),
+    );
   }
 
   /// 判定区标记：不同延时锦囊用不同底色，尺寸放大到能看清
@@ -594,20 +729,58 @@ class TableSeatCard extends StatelessWidget {
                           style: TextStyle(fontSize: 7 * k, color: Colors.white)),
                     ),
                   ),
-                if (displayMarks.isNotEmpty)
-                  Positioned(
-                    left: statusLeft,
-                    top: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xCC8D2F00),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Text(displayMarks.join(' '),
-                          style: TextStyle(fontSize: 7 * k, color: Colors.white)),
-                    ),
+                // 左上信息列：扣置牌数量 + 标记（社/弑等）+ 判定区，自上而下自然排布避免互相压字
+                Positioned(
+                  left: statusLeft,
+                  top: 3 * k,
+                  right: 2 * k,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (exileCount > 0)
+                        Container(
+                          margin: EdgeInsets.only(bottom: 2 * k),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 3.5 * k, vertical: 1 * k),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                                colors: [Color(0xFFD4AF37), Color(0xFF8D6E1F)]),
+                            borderRadius: BorderRadius.circular(3 * k),
+                            border: Border.all(color: const Color(0xFFFFE082), width: 0.9),
+                            boxShadow: [
+                              BoxShadow(
+                                  color: const Color(0x99FFD54F),
+                                  blurRadius: 5 * k,
+                                  spreadRadius: 0.5),
+                            ],
+                          ),
+                          child: Text('扣:$exileCount',
+                              style: TextStyle(
+                                  fontSize: 7.5 * k,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800)),
+                        ),
+                      if (displayMarks.isNotEmpty)
+                        Wrap(
+                          spacing: 2.5 * k,
+                          runSpacing: 2 * k,
+                          children:
+                              displayMarks.map((m) => _markChip(m, k)).toList(),
+                        ),
+                      if (judges.isNotEmpty)
+                        Padding(
+                          padding: EdgeInsets.only(top: displayMarks.isEmpty ? 0 : 2 * k),
+                          child: Wrap(
+                            spacing: 3 * k,
+                            runSpacing: 2 * k,
+                            children:
+                                judges.take(3).map((j) => _judgeChip(j, k)).toList(),
+                          ),
+                        ),
+                    ],
                   ),
+                ),
                 // 底部条：装备 + 座次
                 Positioned(
                   left: stripW,
@@ -634,17 +807,6 @@ class TableSeatCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // 判定区（大号彩色标记：乐=粉、兵粮=蓝、闪电=紫）
-                if (judges.isNotEmpty)
-                  Positioned(
-                    left: statusLeft,
-                    top: 22 * k,
-                    child: Wrap(
-                      spacing: 3 * k,
-                      runSpacing: 2 * k,
-                      children: judges.take(3).map((j) => _judgeChip(j, k)).toList(),
-                    ),
-                  ),
                 // 阵亡
                 if (!alive)
                   Container(

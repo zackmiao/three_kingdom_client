@@ -30,7 +30,7 @@ class HandCardArea extends StatelessWidget {
   static const double cardH = 158;
 
   Widget _buildCardFace(CardModel card, bool isSelected) {
-    return CardFace(
+    final face = CardFace(
       typeKey: card.typeKey,
       name: card.name,
       suitSymbol: card.suitSymbol,
@@ -43,6 +43,44 @@ class HandCardArea extends StatelessWidget {
       asTransformed: (card.asTransformed == 'NONE' || card.asTransformed.isEmpty)
           ? null
           : card.asTransformed,
+    );
+    if (!card.hasSpecialTag) return face;
+    return Stack(
+      children: [
+        face,
+        Positioned(left: 4, bottom: 6, child: _specialBadge(card)),
+      ],
+    );
+  }
+
+  /// 司马昭系强化牌角标：两仪牌（金，效果结算两次）/ 潜龙牌（紫，伤害与回复 +层数）
+  Widget _specialBadge(CardModel card) {
+    final bool liangYi = card.liangYi;
+    final String text = liangYi ? '两仪×2' : '潜龙+${card.qianLongLevel}';
+    final List<Color> colors = liangYi
+        ? const [Color(0xFFFFD54F), Color(0xFFB8860B)]
+        : const [Color(0xFFBA68C8), Color(0xFF6A1B9A)];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white, width: 0.9),
+        boxShadow: [
+          BoxShadow(
+              color: colors.first.withValues(alpha: 0.85),
+              blurRadius: 8,
+              spreadRadius: 1),
+        ],
+      ),
+      child: Text(text,
+          style: const TextStyle(
+              fontSize: 9.5,
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              height: 1.05,
+              shadows: [Shadow(color: Colors.black54, blurRadius: 3)])),
     );
   }
 

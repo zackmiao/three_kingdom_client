@@ -6,6 +6,10 @@ class CardModel {
   final int cardId;
   final String name;
   final String asTransformed; // 视作转化牌名称，如 "酒" 或 "NONE"
+  /// 两仪牌（司马昭【怠攻】阴态）：本牌效果结算两次。
+  final bool liangYi;
+  /// 潜龙牌（司马昭【怠攻】阳态）：每层让伤害/回复 +1。
+  final int qianLongLevel;
 
   CardModel({
     required this.index,
@@ -15,9 +19,11 @@ class CardModel {
     required this.cardId,
     required this.name,
     this.asTransformed = "NONE",
+    this.liangYi = false,
+    this.qianLongLevel = 0,
   });
 
-  /// 解析服务端数据: 序号#类型#花色#点数字符#ID#中文名#转化名
+  /// 解析服务端数据: 序号#类型#花色#点数字符#ID#中文名#转化名[#两仪#潜龙层数]
   static CardModel? parse(String raw) {
     if (raw.trim().isEmpty) return null;
     final parts = raw.split('#');
@@ -30,6 +36,8 @@ class CardModel {
     int cId = int.tryParse(parts[4]) ?? 0;
     String cName = parts[5];
     String transformed = parts.length > 6 ? parts[6] : "NONE";
+    final liangYi = parts.length > 7 && parts[7].trim() == "1";
+    final qianLong = parts.length > 8 ? (int.tryParse(parts[8]) ?? 0) : 0;
 
     return CardModel(
       index: idx,
@@ -39,8 +47,13 @@ class CardModel {
       cardId: cId,
       name: cName,
       asTransformed: transformed,
+      liangYi: liangYi,
+      qianLongLevel: qianLong,
     );
   }
+
+  /// 是否带有司马昭系的强化标签（两仪 / 潜龙）
+  bool get hasSpecialTag => liangYi || qianLongLevel > 0;
 
   /// 是否为红色花色（红桃/方块）
   bool get isRed {

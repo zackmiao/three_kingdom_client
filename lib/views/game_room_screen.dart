@@ -91,6 +91,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 酒加成（>0 时主视角武将卡显示红色血气）
   int _wineBonus = 0;
 
+  /// 我的势力（WEI/QUN/...，随【篡权】等技能变化）、护盾、武将牌扣置牌数量
+  String _myFaction = "";
+  int _myShield = 0;
+  int _myExileCount = 0;
+
+  /// 全场上扣置于武将牌上的牌（【弑龙】【成务】产生），用于成务选牌弹窗
+  List<_ExiledCardInfo> _exiledCards = const [];
+
   /// 对手技能表：playerId -> 技能列表（长按对方武将牌查看）
   Map<String, List<SkillModel>> _oppSkills = {};
 
@@ -110,6 +118,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   bool _isChuHaiMode = false;
   String? _activeSkill; // 谋攻篇主动技：武圣 / 乱击 / 突袭 / 国色 / 明策 / 反间 / 据守 ...
   String? _skillParam;  // 技能额外参数（清正的花色、颂的标记数）
+  /// 【成务】指定消耗武将牌上的哪一张扣置牌（cardId，为空则由服务端取第一张）
+  int? _chengWuCardId;
 
   bool _isMyTurn = false;
   String? _askPrompt;
@@ -1081,6 +1091,27 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (part.startsWith('RANGE:')) _attackRange = int.tryParse(part.substring(6)) ?? 1;
       if (part.startsWith('ARMOR:')) _myArmor = int.tryParse(part.substring(6)) ?? 0;
       if (part.startsWith('FLIP:')) _myFlipped = part.substring(5) == '1';
+      if (part.startsWith('FACTION:')) _myFaction = part.substring(8).trim();
+      if (part.startsWith('SHIELD:')) _myShield = int.tryParse(part.substring(7)) ?? 0;
+      if (part.startsWith('EXILE:')) _myExileCount = int.tryParse(part.substring(6)) ?? 0;
+      if (part.startsWith('EXILECARDS:')) {
+        final raw = part.substring(11).trim();
+        _exiledCards = <_ExiledCardInfo>[];
+        if (raw.isNotEmpty && raw != '-') {
+          for (final seg in raw.split(';')) {
+            final sp = seg.split('#');
+            if (sp.length < 6) continue;
+            _exiledCards.add(_ExiledCardInfo(
+              ownerId: sp[0],
+              typeKey: sp[1],
+              name: sp[2],
+              suitKey: sp[3],
+              point: sp[4],
+              cardId: int.tryParse(sp[5]) ?? 0,
+            ));
+          }
+        }
+      }
     }
     _isDead = _hp <= 0;
     _isMyTurn = _turnPlayerId == widget.playerId;
@@ -1319,15 +1350,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           return;
         case '成务':
           final chengWuType = _skillParam ?? 'SHA';
+          final chengWuSuffix = _chengWuCardId == null ? '' : ':$_chengWuCardId';
           if (chengWuType == 'NAN_MAN_RU_QIN' || chengWuType == 'WAN_JIAN_QI_FA') {
-            _sendResponse('CHENGWU:$chengWuType');
+            _sendResponse('CHENGWU:$chengWuType$chengWuSuffix');
             return;
           }
           if (target == null) {
             _showToast("【成务】请指定一名目标角色");
             return;
           }
-          _sendResponse('CHENGWU:$chengWuType:$target');
+          _sendResponse('CHENGWU:$chengWuType:$target$chengWuSuffix');
           return;
         default:
           break;
@@ -1690,7 +1722,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     );
   }
 
-  /// 【成务】：选择把扣置牌当作哪一种伤害牌使用。
+  /// 【成务】：先看武将牌上的扣置牌（可指定消耗哪一张），再选择当作哪一种伤害牌使用。
   void _pickChengWuType() {
     const types = <List<String>>[
       ['SHA', '普通【杀】'],
@@ -1701,38 +1733,117 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       ['NAN_MAN_RU_QIN', '【南蛮入侵】（群体，无需指定目标）'],
       ['WAN_JIAN_QI_FA', '【万箭齐发】（群体，无需指定目标）'],
     ];
+    final exiled = _exiledCards;
+    int? picked = exiled.isEmpty ? null : exiled.first.cardId;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF23242E),
-        title: const Text('【成务】当作哪一种伤害牌使用？',
-            style: TextStyle(
-                color: Colors.amberAccent, fontSize: 15, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(types.length, (i) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF343748)),
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    setState(() {
-                      _skillParam = types[i][0];
-                      _activeSkill = '成务';
-                      _selectedIndices.clear();
-                      _selectedTargetIds.clear();
-                    });
-                  },
-                  child: Text(types[i][1],
-                      style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF23242E),
+          title: const Text('【成务】动用武将牌上的扣置牌',
+              style: TextStyle(
+                  color: Colors.amberAccent, fontSize: 15, fontWeight: FontWeight.bold)),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  exiled.isEmpty
+                      ? '武将牌上没有扣置牌，无法发动【成务】。'
+                      : '扣置于武将牌上的牌（点击选中要消耗的那张）：',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11.5),
                 ),
-              ),
-            );
-          }),
+                if (exiled.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 10),
+                    child: SizedBox(
+                      height: 96,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: exiled.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (_, i) {
+                          final ec = exiled[i];
+                          final bool on = picked == ec.cardId;
+                          return GestureDetector(
+                            onTap: () => setDialogState(() => picked = ec.cardId),
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: on ? Colors.amber : Colors.transparent,
+                                    width: 2),
+                                boxShadow: on
+                                    ? [
+                                        const BoxShadow(
+                                            color: Color(0x66FFC107),
+                                            blurRadius: 12,
+                                            spreadRadius: 1)
+                                      ]
+                                    : null,
+                              ),
+                              child: CardFace(
+                                typeKey: ec.typeKey,
+                                name: ec.name,
+                                suitSymbol: _suitSymbolOf(ec.suitKey),
+                                points: ec.point,
+                                isRed: ec.suitKey == 'HEART' || ec.suitKey == 'DIAMOND',
+                                index: i + 1,
+                                showIndex: false,
+                                width: 68,
+                                height: 96,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                const Text('当作哪一种伤害牌使用？',
+                    style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+                const SizedBox(height: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(types.length, (i) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: exiled.isEmpty
+                                  ? null
+                                  : () {
+                                      Navigator.of(ctx).pop();
+                                      setState(() {
+                                        _skillParam = types[i][0];
+                                        _chengWuCardId = picked;
+                                        _activeSkill = '成务';
+                                        _selectedIndices.clear();
+                                        _selectedTargetIds.clear();
+                                      });
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF343748),
+                                  disabledBackgroundColor: const Color(0xFF2A2A33)),
+                              child: Text(types[i][1],
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 12.5)),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -2115,6 +2226,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _isChuHaiMode = false;
       _activeSkill = null;
       _skillParam = null;
+      _chengWuCardId = null;
     });
   }
 
@@ -2464,6 +2576,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           armor: o.armor,
           flipped: 0 > 1 ? false : o.flipped,
           wineBonus: o.wineBonus,
+          faction: o.faction,
+          shield: o.shield,
+          exileCount: o.exileCount,
           onLongPress: () => _showOpponentSkills(o),
           seatNo: _opponents.indexOf(o) + 2,
           isCurrentTurn: isOppTurn,
@@ -2965,6 +3080,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         armor: _myArmor,
                         flipped: _myFlipped,
                         wineBonus: _wineBonus,
+                        faction: _myFaction,
+                        shield: _myShield,
+                        exileCount: _myExileCount,
                         onLongPress: () => _showSkillListDialog(
                             title: _heroName.isEmpty ? '我的技能' : _heroName,
                             skills: _skills,
@@ -3238,4 +3356,23 @@ class _FlightCardBack extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 扣置于武将牌上的牌（【弑龙】【成务】产生），用于成务选牌弹窗
+class _ExiledCardInfo {
+  final String ownerId; // 扣置在哪名角色的武将牌上
+  final String typeKey;
+  final String name;
+  final String suitKey; // SPADE / HEART / CLUB / DIAMOND
+  final String point;
+  final int cardId;
+
+  const _ExiledCardInfo({
+    required this.ownerId,
+    required this.typeKey,
+    required this.name,
+    required this.suitKey,
+    required this.point,
+    required this.cardId,
+  });
 }

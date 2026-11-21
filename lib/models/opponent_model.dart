@@ -14,6 +14,12 @@ class OpponentModel {
   final int armor;
   final bool flipped;
   final int wineBonus;
+  /// 当前势力（WEI / QUN / SHU / WU / SHEN），随【篡权】等技能实时变化。
+  final String faction;
+  /// 护盾值（先于护甲承伤）。
+  final int shield;
+  /// 武将牌上扣置的牌数量（【弑龙】【成务】）。
+  final int exileCount;
 
   OpponentModel({
     required this.id,
@@ -31,6 +37,9 @@ class OpponentModel {
     this.armor = 0,
     this.flipped = false,
     this.wineBonus = 0,
+    this.faction = "",
+    this.shield = 0,
+    this.exileCount = 0,
   });
 
   static OpponentModel? parse(String token) {
@@ -53,6 +62,9 @@ class OpponentModel {
       armor: p.length > 12 ? (int.tryParse(p[12]) ?? 0) : 0,
       flipped: p.length > 13 && p[13] == "1",
       wineBonus: p.length > 14 ? (int.tryParse(p[14]) ?? 0) : 0,
+      faction: p.length > 15 ? p[15].trim() : "",
+      shield: p.length > 16 ? (int.tryParse(p[16]) ?? 0) : 0,
+      exileCount: p.length > 17 ? (int.tryParse(p[17]) ?? 0) : 0,
     );
   }
 
