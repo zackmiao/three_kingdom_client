@@ -26,6 +26,9 @@ class TableSeatCard extends StatelessWidget {
 
   /// 目标在攻击范围之外（选中【杀】时置灰并标注「距离不足」）
   final bool isOutOfRange;
+
+  /// 刚刚受到伤害：武将卡边框与光晕短暂闪红
+  final bool isHitFlash;
   final String role;
   final String roleLabel;
   final bool alive;
@@ -63,6 +66,7 @@ class TableSeatCard extends StatelessWidget {
     this.isSelectedAsTarget = false,
     this.isTargetSelectionMode = false,
     this.isOutOfRange = false,
+    this.isHitFlash = false,
     this.role = "HIDDEN",
     this.roleLabel = "？",
     this.alive = true,
@@ -541,18 +545,23 @@ class TableSeatCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(9),
               border: Border.all(
-                color: isOutOfRange
-                    ? const Color(0x55FFFFFF)
-                    : (highlight
-                        ? const Color(0xFFFF5252)
-                        : (isCurrentTurn
-                            ? const Color(0xFFFFC94D)
-                            : (drunk
-                                ? const Color(0xFFFF4D4D)
-                                : const Color(0x66FFD9A0)))),
-                width: highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2),
+                color: isHitFlash
+                    ? const Color(0xFFFF1744)
+                    : (isOutOfRange
+                        ? const Color(0x55FFFFFF)
+                        : (highlight
+                            ? const Color(0xFFFF5252)
+                            : (isCurrentTurn
+                                ? const Color(0xFFFFC94D)
+                                : (drunk
+                                    ? const Color(0xFFFF4D4D)
+                                    : const Color(0x66FFD9A0))))),
+                width: isHitFlash ? 3.2 : (highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2)),
               ),
               boxShadow: [
+                if (isHitFlash)
+                  const BoxShadow(
+                      color: Color(0xCCFF1744), blurRadius: 26, spreadRadius: 4),
                 if (drunk) ...[
                   const BoxShadow(
                       color: Color(0x996B4A00), blurRadius: 22, spreadRadius: 3),

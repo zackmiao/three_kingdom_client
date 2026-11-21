@@ -21,6 +21,9 @@ class TargetArrowPainter extends CustomPainter {
   static const Color _fireGlow = Color(0x66FF9100);
   static const Color _thunderGlow = Color(0x665C6BC0);
   static const Color _otherGlow = Color(0x55FFB300);
+  static const Color _dismantleGlow = Color(0x666A1B9A);
+  static const Color _snatchGlow = Color(0x6600BFA5);
+  static const Color _duelGlow = Color(0x66FF3D00);
 
   (Color, Color, Color) get _palette {
     switch (nature) {
@@ -33,6 +36,15 @@ class TargetArrowPainter extends CustomPainter {
       case 'THUNDER':
         return (const Color(0xFFB3E5FC), const Color(0xFF5C6BC0),
             const Color(0xFF8E9BFF));
+      case 'DISMANTLE':
+        return (const Color(0xFFCE93D8), const Color(0xFF6A1B9A),
+            const Color(0xFFAB47BC));
+      case 'SNATCH':
+        return (const Color(0xFFB2DFDB), const Color(0xFF00796B),
+            const Color(0xFF4DD0C4));
+      case 'DUEL':
+        return (const Color(0xFFFFD180), const Color(0xFFBF360C),
+            const Color(0xFFFF7043));
       default:
         return (const Color(0xFFFFE082), const Color(0xFFFF8F00),
             const Color(0xFFFFC107));
@@ -47,6 +59,12 @@ class TargetArrowPainter extends CustomPainter {
         return _fireGlow;
       case 'THUNDER':
         return _thunderGlow;
+      case 'DISMANTLE':
+        return _dismantleGlow;
+      case 'SNATCH':
+        return _snatchGlow;
+      case 'DUEL':
+        return _duelGlow;
       default:
         return _otherGlow;
     }

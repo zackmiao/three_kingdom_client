@@ -124,6 +124,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 正在等待目标响应【闪】
   bool _waitingForDodge = false;
 
+  /// 刚刚受击的玩家（武将卡闪红）
+  final Set<String> _hitSeats = <String>{};
+
   /// 群体锦囊横幅（南蛮入侵 / 万箭齐发）
   String? _aoeBanner;
 
@@ -539,6 +542,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         return 'THUNDER';
       case 'SHA':
         return 'SHA';
+      case 'GUO_HE_CHAI_QIAO':
+        return 'DISMANTLE';
+      case 'SHUN_SHOU_QIAN_YANG':
+        return 'SNATCH';
+      case 'DUEL':
+        return 'DUEL';
       default:
         return 'OTHER';
     }
@@ -652,8 +661,17 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   /// 在某个角色头顶飘一条数字（掉血 -1 / 回复 +1 / 护甲 🛡）。找不到人就退回屏幕中央。
-  void _spawnSeatFloat(String playerName, String text, Color color) {
+  /// 受击时让该玩家的武将卡边框闪红 520ms
+  void _flashSeat(String playerName) {
     final id = _findPlayerIdByName(playerName);
+    if (id == null || !mounted) return;
+    setState(() => _hitSeats.add(id));
+    Timer(const Duration(milliseconds: 520), () {
+      if (mounted) setState(() => _hitSeats.remove(id));
+    });
+  }
+
+  void _spawnSeatFloat(String playerName, String text, Color color) {    final id = _findPlayerIdByName(playerName);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Offset? pos;
@@ -891,6 +909,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       final who = _playerMentioned(log);
       final color = log.contains('传导') ? const Color(0xFFB39DDB) : Colors.redAccent;
       if (who != null) {
+        _flashSeat(who);
         _spawnSeatFloat(who, '-${dmg.group(1)}', color);
       } else {
         _flash('-${dmg.group(1)}', color);
@@ -902,6 +921,22 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       final who = _playerMentioned(log);
       if (who != null) {
         _spawnSeatFloat(who, '+${heal.group(1)}', Colors.greenAccent);
+        // 治愈光点：从中央结算区飞回被治疗者的武将卡
+        final hid = _findPlayerIdByName(who);
+        final seatKey = hid == null ? null : _seatKeys[hid];
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _spawnFlight(
+            dest: 'seat',
+            toPos: seatKey == null ? null : _stageCenterOf(seatKey),
+            fromPos: _stageCenterOf(_centerKey),
+            typeKey: 'TAO',
+            name: '桃',
+            width: 60,
+            height: 85,
+            arc: 26,
+          );
+        });
       } else {
         _flash('+${heal.group(1)}', Colors.greenAccent);
       }
@@ -2740,6 +2775,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           cardKey: ValueKey(o.id),
           id: o.id,
           isOutOfRange: outOfRange,
+          isHitFlash: _hitSeats.contains(o.id),
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -3354,6 +3390,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                       key: _seatKeyOf(widget.playerId),
                       child: TableSeatCard(
                         id: widget.playerId,
+                        isHitFlash: _hitSeats.contains(widget.playerId),
                         name: widget.playerName,
                         hero: _heroName,
                         hp: _hp,
