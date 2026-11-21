@@ -1293,6 +1293,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           }
           _sendResponse('LEIJI:$target');
           return;
+        case '弑龙':
+          if (target == null) {
+            _showToast("【弑龙】请指定一名其他角色");
+            return;
+          }
+          _sendResponse('SHILONG:$target');
+          return;
         default:
           break;
       }
