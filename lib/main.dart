@@ -162,7 +162,11 @@ class _LoginScreenState extends State<LoginScreen> {
         avatar = null;
       }
     }
-    Account.instance.signIn(name, avatarBytes: avatar);
+    Account.instance.signIn(
+      name,
+      avatarBytes: avatar,
+      isBeta: parts.length > 3 && parts[3].trim() == "1",
+    );
     _enterLobby(id, name);
   }
 

@@ -24,5 +24,4 @@ flutter:
   assets:
     - assets/heroes/
     - assets/cards/
-    - assets/audio/voice/
     - assets/audio/sfx/

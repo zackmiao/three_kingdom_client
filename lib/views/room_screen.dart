@@ -49,7 +49,13 @@ class _RoomScreenState extends State<RoomScreen> {
     'IDENTITY': '身份场',
     'TEAM_2V2': '2v2',
     'LANDLORD': '斗地主',
+    'TEST': '测试模式',
   };
+
+  /// 房主可切换的模式（测试模式仅内测账号可见）
+  Map<String, String> get _visibleModeLabels => Account.instance.beta
+      ? _modeLabels
+      : Map<String, String>.from(_modeLabels)..remove('TEST');
 
   String get _modeLabel => _modeLabels[_mode] ?? '身份场';
 
@@ -424,7 +430,7 @@ class _RoomScreenState extends State<RoomScreen> {
                         children: [
                           const Text('模式：',
                               style: TextStyle(color: Colors.white38, fontSize: 12)),
-                          for (final entry in _modeLabels.entries)
+                          for (final entry in _visibleModeLabels.entries)
                             Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: _ModeChip(

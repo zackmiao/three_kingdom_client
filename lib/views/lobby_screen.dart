@@ -5,6 +5,9 @@ import '../network/packet.dart';
 import '../network/socket_service.dart';
 import 'hero_book_screen.dart';
 import 'room_screen.dart';
+import '../services/user_service.dart';
+import 'dialogs/profile_dialog.dart';
+import 'dialogs/settings_dialog.dart';
 
 class LobbyScreen extends StatefulWidget {
   final String playerId;
@@ -30,7 +33,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
     _ModeInfo('IDENTITY', '身份场', '主公 / 忠臣 / 反贼 / 内奸', '2~8 人', Colors.amber),
     _ModeInfo('TEAM_2V2', '2v2', '暖方 2 人 对 冷方 2 人', '4 人', Colors.tealAccent),
     _ModeInfo('LANDLORD', '斗地主', '地主 1 人 对 农民 2 人', '3 人', Colors.deepOrangeAccent),
+    // 测试模式只对内测权限账号展示（服务端也会再校验一次）
+    _ModeInfo('TEST', '测试模式', '自定义对局，可自选任意武将', '1~8 人', Colors.lightGreenAccent),
   ];
+
+  /// 当前账号可见的模式列表（测试模式仅内测账号可见）
+  List<_ModeInfo> get _visibleModes =>
+      Account.instance.beta ? _modes : _modes.where((m) => m.key != 'TEST').toList();
 
   _ModeInfo get _curMode => _modes.firstWhere((m) => m.key == _mode, orElse: () => _modes.first);
 
@@ -39,6 +48,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
       _mode = key;
       if (key == 'TEAM_2V2') _maxPlayersController.text = "4";
       if (key == 'LANDLORD') _maxPlayersController.text = "3";
+      if (key == 'TEST') _maxPlayersController.text = "2";
     });
   }
 
@@ -183,6 +193,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
             label: const Text('武将图鉴',
                 style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
           ),
+          TextButton.icon(
+            onPressed: () => ProfileDialog.show(context, playerName: widget.playerName),
+            icon: const Icon(Icons.person, color: Color(0xFFFFD9A0), size: 18),
+            label: const Text('个人信息',
+                style: TextStyle(color: Color(0xFFFFD9A0), fontWeight: FontWeight.bold)),
+          ),
+          IconButton(
+            tooltip: '设置',
+            onPressed: () => SettingsDialog.show(context),
+            icon: const Icon(Icons.settings, color: Colors.white70, size: 19),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             child: Row(children: [
@@ -222,17 +243,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Text('${_curMode.title}：${_curMode.desc}（${_curMode.seatLabel}，可加 AI 补位）',
                     style: const TextStyle(color: Colors.white38, fontSize: 12)),
                 const SizedBox(height: 14),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    for (final m in _modes)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: _ModeCard(
-                            info: m,
-                            selected: _mode == m.key,
-                            onTap: () => _pickMode(m.key),
-                          ),
+                    for (final m in _visibleModes)
+                      SizedBox(
+                        width: 196,
+                        child: _ModeCard(
+                          info: m,
+                          selected: _mode == m.key,
+                          onTap: () => _pickMode(m.key),
                         ),
                       ),
                   ],

@@ -105,13 +105,17 @@ class Account {
   String? name;
   Uint8List? avatar;
 
+  /// 是否拥有内测权限（服务端 ACCOUNT_RESULT 第 4 段下发），决定能否进入【测试模式】
+  bool beta = false;
+
   /// 其他玩家的头像缓存（用户名 → 图片字节）
   final Map<String, Uint8List> avatars = {};
 
   bool get loggedIn => name != null && name!.isNotEmpty;
 
-  void signIn(String userName, {Uint8List? avatarBytes}) {
+  void signIn(String userName, {Uint8List? avatarBytes, bool isBeta = false}) {
     name = userName;
+    beta = isBeta;
     if (avatarBytes != null) avatar = avatarBytes;
     revision.value++;
   }
@@ -119,6 +123,13 @@ class Account {
   void signOut() {
     name = null;
     avatar = null;
+    beta = false;
+    revision.value++;
+  }
+
+  void setBeta(bool value) {
+    if (beta == value) return;
+    beta = value;
     revision.value++;
   }
 

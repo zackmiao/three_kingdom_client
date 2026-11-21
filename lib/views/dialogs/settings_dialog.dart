@@ -60,14 +60,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _switch('音效', '出牌 / 受击 / 判定等提示音',
+                    _switch('音效', '出牌 / 受击 / 判定等提示音（角色语音已移除）',
                         _s.sfxEnabled, (v) => _update(() => _s.sfxEnabled = v)),
                     _slider('音效音量', _s.sfxVolume,
                         _s.sfxEnabled ? (v) => _update(() => _s.sfxVolume = v) : null),
-                    _switch('角色语音', '出牌、技能、回合提示的中文语音',
-                        _s.voiceEnabled, (v) => _update(() => _s.voiceEnabled = v)),
-                    _slider('语音音量', _s.voiceVolume,
-                        _s.voiceEnabled ? (v) => _update(() => _s.voiceVolume = v) : null),
                     const Divider(color: Colors.white12, height: 20),
                     _slider('动画速度', _s.animSpeed,
                         (v) => _update(() => _s.animSpeed = v), min: 0.5, max: 2.0),

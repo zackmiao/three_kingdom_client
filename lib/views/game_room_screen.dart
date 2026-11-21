@@ -22,6 +22,7 @@ import 'components/table_seat_card.dart';
 import 'components/target_arrow_painter.dart';
 import 'dialogs/choice_prompt_dialog.dart';
 import 'dialogs/hero_draw_dialog.dart';
+import 'dialogs/hero_select_dialog.dart';
 import 'dialogs/huogong_dialog.dart';
 import 'dialogs/judge_result_dialog.dart';
 import 'dialogs/lucky_card_dialog.dart';
@@ -93,7 +94,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   /// 我的势力（WEI/QUN/...，随【篡权】等技能变化）、护盾、武将牌扣置牌数量
   String _myFaction = "";
-  int _myShield = 0;
   int _myExileCount = 0;
 
   /// 全场上扣置于武将牌上的牌（【弑龙】【成务】产生），用于成务选牌弹窗
@@ -311,13 +311,36 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       return;
     }
 
+    final testMode = _gameMode == 'TEST';
     setState(() {
-      _askPrompt = "选将阶段：请从 ${heroes.length} 名候选中选择本局出战的武将";
+      _askPrompt = testMode
+          ? "选将阶段（测试模式）：可从全部 ${heroes.length} 名武将中自选"
+          : "选将阶段：请从 ${heroes.length} 名候选中选择本局出战的武将";
       _isMyTurn = false;
       _isResponding = false;
       _selectedIndices.clear();
       _selectedTargetIds.clear();
     });
+
+    // 测试模式候选是全部武将：直接用带筛选的完整武将网格自选
+    if (heroes.length > 8) {
+      final done = Completer<String?>();
+      HeroSelectDialog.show(
+        context,
+        heroes,
+        title: '选择出战武将（测试模式）',
+        currentHero: _heroName,
+        onSelect: (h) {
+          if (!done.isCompleted) done.complete(h.name);
+        },
+      );
+      final picked = await done.future
+          .timeout(const Duration(minutes: 3), onTimeout: () => null);
+      if (!mounted) return;
+      setState(() => _askPrompt = "");
+      _sendResponse(picked ?? heroes.first.name);
+      return;
+    }
 
     final notifier = ValueNotifier<List<HeroModel>>(heroes);
     String chosen = heroes.first.name;
@@ -1092,7 +1115,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (part.startsWith('ARMOR:')) _myArmor = int.tryParse(part.substring(6)) ?? 0;
       if (part.startsWith('FLIP:')) _myFlipped = part.substring(5) == '1';
       if (part.startsWith('FACTION:')) _myFaction = part.substring(8).trim();
-      if (part.startsWith('SHIELD:')) _myShield = int.tryParse(part.substring(7)) ?? 0;
       if (part.startsWith('EXILE:')) _myExileCount = int.tryParse(part.substring(6)) ?? 0;
       if (part.startsWith('EXILECARDS:')) {
         final raw = part.substring(11).trim();
@@ -2577,7 +2599,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           flipped: 0 > 1 ? false : o.flipped,
           wineBonus: o.wineBonus,
           faction: o.faction,
-          shield: o.shield,
           exileCount: o.exileCount,
           onLongPress: () => _showOpponentSkills(o),
           seatNo: _opponents.indexOf(o) + 2,
@@ -2926,6 +2947,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   Widget _buildRightZone() {
     // 展示全部技能（含锁定/被动技），被动技点击只能查看描述
     final manualSkills = _skills;
+    // 技能多的武将（如司马昭 13 技）改用更紧凑的按钮，避免横向挤爆右栏
+    final bool compactSkills = manualSkills.length > 6;
+    final double chipPadH = compactSkills ? 9 : 13;
+    final double chipPadV = compactSkills ? 3 : 5;
+    final double skillNameSize = compactSkills ? 12.5 : 15;
+    final double skillBadgeSize = compactSkills ? 7.5 : 8.5;
 
     return SizedBox(
       width: 400,
@@ -2934,14 +2961,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           // 技能按钮（主动技可发动；不可发动时置暗；长按/点击被动技查看描述）
           if (manualSkills.isNotEmpty)
             Container(
-              height: 58,
-              padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
+              height: compactSkills ? 50 : 58,
+              padding: EdgeInsets.fromLTRB(6, compactSkills ? 4 : 6, 6, 4),
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
                   for (final sk in manualSkills)
                     Padding(
-                      padding: const EdgeInsets.only(right: 8),
+                      padding: EdgeInsets.only(right: compactSkills ? 5 : 8),
                       child: GestureDetector(
                         onTap: () {
                           // 被动/锁定技不可发动，点一下只看完整描述
@@ -2955,8 +2982,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         },
                         onLongPress: () => _showSkillDesc(sk),
                         child: Container(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: chipPadH, vertical: chipPadV),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(colors: !sk.isManual
                                 ? [const Color(0xFF3A3A3A), const Color(0xFF232323)]
@@ -3004,13 +3031,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                                               ? '${sk.remain}/${sk.cap}'
                                               : (_isResponding ? '可用' : '发动'))),
                                   style: TextStyle(
-                                      fontSize: 8.5,
+                                      fontSize: skillBadgeSize,
                                       color: (!sk.isManual || !sk.usable)
                                           ? Colors.white38
                                           : Colors.amber[100])),
                               Text(sk.name,
                                   style: TextStyle(
-                                      fontSize: 15,
+                                      fontSize: skillNameSize,
                                       color: (!sk.isManual || !sk.usable)
                                           ? Colors.white38
                                           : Colors.white,
@@ -3081,7 +3108,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         flipped: _myFlipped,
                         wineBonus: _wineBonus,
                         faction: _myFaction,
-                        shield: _myShield,
                         exileCount: _myExileCount,
                         onLongPress: () => _showSkillListDialog(
                             title: _heroName.isEmpty ? '我的技能' : _heroName,

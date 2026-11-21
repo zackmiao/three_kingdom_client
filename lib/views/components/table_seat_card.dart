@@ -36,7 +36,6 @@ class TableSeatCard extends StatelessWidget {
   /// 当前势力（WEI/QUN/SHU/WU/SHEN）：优先于按武将名猜测，支持【篡权】实时变身。
   final String faction;
   /// 护盾值（先于护甲承伤），显示在体力勾玉上方。
-  final int shield;
   /// 武将牌上扣置的牌数量（【弑龙】【成务】），左上角显示「扣:N」。
   final int exileCount;
   final VoidCallback? onTap;
@@ -70,7 +69,6 @@ class TableSeatCard extends StatelessWidget {
     this.compact = false,
     this.wineBonus = 0,
     this.faction = "",
-    this.shield = 0,
     this.exileCount = 0,
     this.onTap,
     this.onLongPress,
@@ -244,45 +242,9 @@ class TableSeatCard extends StatelessWidget {
       ),
     );
   }
-
-  /// 护盾徽章：体力勾玉上方、护甲徽章之上（护盾先于护甲承伤）
-  Widget _shieldBadge(double k) {
-    return Container(
-      width: 20 * k,
-      margin: EdgeInsets.only(bottom: 3 * k),
-      padding: EdgeInsets.symmetric(vertical: 1 * k),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFB3E5FC), Color(0xFF0288D1)],
-        ),
-        borderRadius: BorderRadius.circular(4 * k),
-        border: Border.all(color: Colors.white, width: 0.9),
-        boxShadow: [
-          BoxShadow(
-              color: const Color(0xFF4FC3F7).withValues(alpha: 0.75),
-              blurRadius: 7 * k,
-              spreadRadius: 1),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('🛡️', style: TextStyle(fontSize: 7.5 * k, height: 1.05)),
-          Text('$shield',
-              style: TextStyle(
-                  fontSize: 9.5 * k,
-                  height: 1.0,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900)),
-        ],
-      ),
-    );
-  }
-
+  /// 花色符号（烈弓记录花色等标记展示用）
   static String _suitGlyph(String key) {
-    switch (key) {
+    switch (key.toUpperCase()) {
       case 'SPADE':
         return '♠';
       case 'HEART':
@@ -295,7 +257,6 @@ class TableSeatCard extends StatelessWidget {
         return '';
     }
   }
-
   Widget _strip(double k) {
     final force = faction.isNotEmpty
         ? factionCn(faction)
@@ -353,7 +314,6 @@ class TableSeatCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (shield > 0) _shieldBadge(k),
                 if (armor > 0) _armorBadge(k),
                 _hpDotsVertical(k),
               ],
