@@ -692,9 +692,33 @@ class TableSeatCard extends StatelessWidget {
                   ),
                 if (isChained)
                   Positioned(
-                    right: 4,
-                    top: 27 * k,
-                    child: Icon(Icons.link, size: 12 * k, color: const Color(0xFFFF7043)),
+                    right: 3,
+                    top: 26 * k,
+                    child: Tooltip(
+                      message: '铁索连环（横置）',
+                      child: Container(
+                        width: 15 * k,
+                        height: 15 * k,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFFFFE082), Color(0xFFC08A00)],
+                          ),
+                          borderRadius: BorderRadius.circular(4 * k),
+                          border: Border.all(
+                              color: const Color(0xFFFFF3C4), width: 1),
+                          boxShadow: const [
+                            BoxShadow(
+                                color: Color(0x99FFC107),
+                                blurRadius: 8,
+                                spreadRadius: 1),
+                          ],
+                        ),
+                        child: Icon(Icons.lock,
+                            size: 10 * k, color: const Color(0xFF4A3200)),
+                      ),
+                    ),
                   ),
                 if (flipped)
                   Positioned(

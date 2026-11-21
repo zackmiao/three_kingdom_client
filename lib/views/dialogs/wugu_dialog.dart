@@ -79,8 +79,20 @@ class WuGuDialog {
                           fontSize: 15,
                           fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  const Text('灰掉的牌已被别人拿走，不能再选',
-                      style: TextStyle(color: Colors.white38, fontSize: 10.5)),
+                  Text(
+                      '还剩 ${pool.length} 张可选 · 已被选走 ${taken.length} 张（灰掉的不能再选）',
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 10.5)),
+                  if (taken.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                        '已被选走：${taken.map((t) => '${t.owner.isEmpty ? '他人' : t.owner}→${t.desc}').join('、')}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Color(0xFF9E8B5A), fontSize: 10)),
+                  ],
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 12,

@@ -127,6 +127,23 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 刚刚受击的玩家（武将卡闪红）
   final Set<String> _hitSeats = <String>{};
 
+  /// 爆炸/爆点特效（火攻命中、传导等）
+  final List<_Burst> _bursts = <_Burst>[];
+  int _burstSeq = 0;
+
+  /// 拖动/选中【杀】时鼠标的舞台坐标（用于画动态准星线）
+  Offset? _aimPos;
+
+  /// 当前选中的【杀】类牌（普通杀/火杀/雷杀），没有则返回 null
+  CardModel? _aimShaCard() {
+    for (final c in _handCards) {
+      if (_selectedIndices.contains(c.index) && _isShaNature(c.typeKey)) {
+        return c;
+      }
+    }
+    return null;
+  }
+
   /// 群体锦囊横幅（南蛮入侵 / 万箭齐发）
   String? _aoeBanner;
 
@@ -662,13 +679,70 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   /// 在某个角色头顶飘一条数字（掉血 -1 / 回复 +1 / 护甲 🛡）。找不到人就退回屏幕中央。
   /// 受击时让该玩家的武将卡边框闪红 520ms
-  void _flashSeat(String playerName) {
-    final id = _findPlayerIdByName(playerName);
+  void _flashSeat(String playerName) {    final id = _findPlayerIdByName(playerName);
     if (id == null || !mounted) return;
     setState(() => _hitSeats.add(id));
     Timer(const Duration(milliseconds: 520), () {
       if (mounted) setState(() => _hitSeats.remove(id));
     });
+  }
+
+  /// 在指定玩家的武将卡位置炸开一个光团（火攻命中 / 属性传导）
+  void _spawnBurst(String playerName, Color color) {
+    final id = _findPlayerIdByName(playerName);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pos = id == null
+          ? _stageCenterOf(_seatKeyOf(widget.playerId))
+          : _stageCenterOf(_seatKeyOf(id));
+      if (pos == null) return;
+      final b = _Burst(seq: _burstSeq++, pos: pos, color: color);
+      setState(() => _bursts.add(b));
+    });
+  }
+
+  Widget _buildBurst(_Burst b) {
+    return Positioned(
+      left: b.pos.dx - 48,
+      top: b.pos.dy - 48,
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 620),
+          curve: Curves.easeOut,
+          onEnd: () {
+            if (mounted) setState(() => _bursts.remove(b));
+          },
+          builder: (ctx, p, child) {
+            return Opacity(
+              opacity: (1.0 - p).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: 0.35 + p * 1.75,
+                child: Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(colors: [
+                      b.color.withValues(alpha: 0.95),
+                      b.color.withValues(alpha: 0.25),
+                      Colors.transparent,
+                    ], stops: const [0.0, 0.55, 1.0]),
+                    boxShadow: [
+                      BoxShadow(
+                        color: b.color.withValues(alpha: 0.65 * (1.0 - p)),
+                        blurRadius: 34,
+                        spreadRadius: 6,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _spawnSeatFloat(String playerName, String text, Color color) {    final id = _findPlayerIdByName(playerName);
@@ -911,6 +985,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (who != null) {
         _flashSeat(who);
         _spawnSeatFloat(who, '-${dmg.group(1)}', color);
+        // 属性爆点：火焰（火杀/火攻）橙红爆团，雷电紫蓝，铁索传导淡紫
+        if (log.contains('火焰') || log.contains('火攻')) {
+          _spawnBurst(who, const Color(0xFFFF6D00));
+        } else if (log.contains('雷')) {
+          _spawnBurst(who, const Color(0xFF7C4DFF));
+        } else if (log.contains('传导')) {
+          _spawnBurst(who, const Color(0xFFB39DDB));
+        }
       } else {
         _flash('-${dmg.group(1)}', color);
       }
@@ -962,6 +1044,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       }
     }
     _animateCardFeel(log);
+
+    // 五谷丰登：别人选走了哪张牌（旁观者也能看到「谁拿了什么」）
+    final wuguPick = RegExp(r'^(.+?)\s*挑选了\s*(.+?)$').firstMatch(log.trim());
+    if (wuguPick != null) {
+      final picker = wuguPick.group(1)!.trim();
+      final what = wuguPick.group(2)!.trim();
+      audio.playSfx('draw', volume: 0.5);
+      _flash('$picker 选走了 $what', const Color(0xFFFFC94D));
+      _spawnSeatFloat(picker, what, const Color(0xFFFFC94D));
+    }
 
     if (log.contains("使用了") || log.contains("打出") || log.contains("装备了")) {
       String? cardName;
@@ -1408,8 +1500,21 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       equipNow.forEach((slot, name) {
         if (name != '无' && name != equipPrev[slot]) {
           final key = CardCatalog.typeKeyOfName(name);
+          final old = equipPrev[slot];
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            // 旧装备被替换：从装备区飞向弃牌堆
+            if (old != null && old != '无' && old.isNotEmpty) {
+              _spawnFlight(
+                dest: 'deck',
+                fromPos: _stageCenterOf(_equipKey),
+                typeKey: CardCatalog.typeKeyOfName(old),
+                name: old,
+                arc: 22,
+                width: 62,
+                height: 88,
+              );
+            }
             _spawnFlight(
               dest: 'equip',
               fromPos: _stageCenterOf(_stageKey),
@@ -2486,8 +2591,15 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       // 窗口放大（尤其全屏）时整体等比放大，键盘区/卡牌/字号一起变大
       body: ScaledStage(
         extraScale: AppSettings.instance.uiScale,
-        child: Stack(
-          key: _stageKey,
+        child: MouseRegion(
+          onHover: _aimShaCard() == null
+              ? null
+              : (e) => setState(() => _aimPos = e.localPosition),
+          onExit: (_) {
+            if (_aimPos != null) setState(() => _aimPos = null);
+          },
+          child: Stack(
+            key: _stageKey,
           children: [
             const GameBackground(),
             Column(
@@ -2504,6 +2616,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
             // 特效层
             ..._buildEffects(),
           ],
+          ),
         ),
       ),
     );
@@ -3485,7 +3598,22 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   // ---------- 特效与日志 ----------
 
   List<Widget> _buildEffects() {
+    final aimCard = _aimShaCard();
     return [
+      // 拖动/选中【杀】时的动态准星线：从主武将卡拉向鼠标
+      if (aimCard != null && _aimPos != null)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _AimLinePainter(
+                from: _stageCenterOf(_seatKeyOf(widget.playerId)) ??
+                    const Offset(1180, 720),
+                to: _aimPos!,
+                color: _natureColor(_natureOf(aimCard.typeKey)),
+              ),
+            ),
+          ),
+        ),
       if (_bannerVisible)
         Positioned(
           top: 52,
@@ -3543,6 +3671,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       for (final f in _flying) _buildFlight(f),
       // 席位飘字层（掉血 -1 / 回复 +1 / 护甲 🛡，落在对应武将头上）
       for (final f in _seatFloats) _buildSeatFloat(f),
+      // 爆点层（火攻命中 / 属性传导）
+      for (final b in _bursts) _buildBurst(b),
     ];
   }
 
@@ -3618,6 +3748,91 @@ class _SeatFloat {
     required this.text,
     required this.color,
   });
+}
+
+/// 选中/拖动【杀】时从主武将卡拉出的动态准星线
+class _AimLinePainter extends CustomPainter {
+  final Offset from;
+  final Offset to;
+  final Color color;
+
+  const _AimLinePainter({
+    required this.from,
+    required this.to,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final delta = to - from;
+    final len = delta.distance;
+    if (len < 8) return;
+
+    // 外发光
+    canvas.drawLine(
+      from,
+      to,
+      Paint()
+        ..color = color.withValues(alpha: 0.32)
+        ..strokeWidth = 7
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+
+    // 虚线主束
+    final dashPaint = Paint()
+      ..color = color.withValues(alpha: 0.95)
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
+    const dash = 11.0;
+    const gap = 7.0;
+    var travelled = 0.0;
+    final unit = delta / len;
+    while (travelled < len) {
+      final end = (travelled + dash).clamp(0.0, len);
+      canvas.drawLine(
+        from + unit * travelled,
+        from + unit * end,
+        dashPaint,
+      );
+      travelled += dash + gap;
+    }
+
+    // 准星端点
+    canvas.drawCircle(
+      to,
+      15,
+      Paint()
+        ..color = color.withValues(alpha: 0.20)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawCircle(
+      to,
+      8,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = color.withValues(alpha: 0.95),
+    );
+    canvas.drawCircle(
+      to,
+      2.6,
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _AimLinePainter old) =>
+      old.from != from || old.to != to || old.color != color;
+}
+
+/// 一个爆点光团（火攻命中 / 属性传导）
+class _Burst {
+  final int seq;
+  final Offset pos;
+  final Color color;
+
+  const _Burst({required this.seq, required this.pos, required this.color});
 }
 
 /// 一张正在飞行的牌（摸牌时 typeKey 为 null → 画牌背）
