@@ -251,7 +251,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         _handleLuckyPrompt(packet.data);
         break;
       case Command.HERO_CANDIDATES:
-        _handleHeroCandidates(packet.data);
+        // 只有对局内的「选将阶段」才带 DRAW| 前缀；房间级候选（ROOM_SYNC 下发）不弹窗
+        if (packet.data.startsWith('DRAW|')) {
+          _handleHeroCandidates(packet.data.substring(5));
+        }
         break;
       case Command.SHOW_JUDGE_RESULT:
         // 判定牌：从牌堆飞一张牌到被判定的角色身上，再弹判定结果

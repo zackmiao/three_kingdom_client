@@ -32,6 +32,65 @@ class AppSettings {
   /// 界面整体缩放（0.85 ~ 1.15），在 ScaledStage 之外再乘一层
   double uiScale = 1.0;
 
+  /// 记住我：下次启动软件自动登录（保存账号与密码，本机做一次简单异或+base64 混淆）
+  bool autoLogin = true;
+
+  /// 保存的账号 / 密码（密码是混淆后的串，读取请用 [savedPassword]）
+  String savedUser = '';
+  String savedPasswordEncoded = '';
+
+  /// 上次使用的服务器地址与端口
+  String lastHost = '127.0.0.1';
+  String lastPort = '9050';
+
+  /// 还原后的密码明文
+  String get savedPassword => _deobfuscate(savedPasswordEncoded);
+
+  static String _obfuscate(String s) {
+    if (s.isEmpty) return '';
+    return base64Encode(utf8.encode(s).map((b) => b ^ 0x5A).toList());
+  }
+
+  static String _deobfuscate(String s) {
+    if (s.isEmpty) return '';
+    try {
+      final bytes = base64Decode(s).map((b) => b ^ 0x5A).toList();
+      return utf8.decode(bytes);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// 登录成功后记住账号（autoLogin 关闭时只记住服务器地址）
+  Future<void> saveLogin({
+    required String name,
+    required String password,
+    required String host,
+    required String port,
+  }) async {
+    lastHost = host.isEmpty ? lastHost : host;
+    lastPort = port.isEmpty ? lastPort : port;
+    if (autoLogin) {
+      savedUser = name;
+      savedPasswordEncoded = _obfuscate(password);
+    }
+    await save();
+  }
+
+  /// 只记住服务器地址（游客模式用，不动已记住的账号）
+  Future<void> saveServer({required String host, required String port}) async {
+    lastHost = host.isEmpty ? lastHost : host;
+    lastPort = port.isEmpty ? lastPort : port;
+    await save();
+  }
+
+  /// 退出登录时清掉记住的账号密码
+  Future<void> clearLogin() async {
+    savedUser = '';
+    savedPasswordEncoded = '';
+    await save();
+  }
+
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   static File get _file {
@@ -55,6 +114,11 @@ class AppSettings {
       showBattleLog = map['showBattleLog'] as bool? ?? showBattleLog;
       confirmDropPlay = map['confirmDropPlay'] as bool? ?? confirmDropPlay;
       uiScale = (map['uiScale'] as num?)?.toDouble() ?? uiScale;
+      autoLogin = map['autoLogin'] as bool? ?? autoLogin;
+      savedUser = map['savedUser'] as String? ?? savedUser;
+      savedPasswordEncoded = map['savedPassword'] as String? ?? savedPasswordEncoded;
+      lastHost = map['lastHost'] as String? ?? lastHost;
+      lastPort = map['lastPort'] as String? ?? lastPort;
       revision.value++;
     } catch (_) {
       // 设置文件损坏时用默认值，不影响进游戏
@@ -75,6 +139,11 @@ class AppSettings {
         'showBattleLog': showBattleLog,
         'confirmDropPlay': confirmDropPlay,
         'uiScale': uiScale,
+        'autoLogin': autoLogin,
+        'savedUser': savedUser,
+        'savedPassword': savedPasswordEncoded,
+        'lastHost': lastHost,
+        'lastPort': lastPort,
       }));
     } catch (_) {
       // 写不进去也不影响这一局

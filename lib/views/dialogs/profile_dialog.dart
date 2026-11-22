@@ -268,8 +268,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
                       ),
                       if (loggedIn)
                         OutlinedButton.icon(
-                          onPressed: () {
+                          onPressed: () async {
                             Account.instance.signOut();
+                            // 退出登录后不再记住账号，下次启动回到登录页
+                            await AppSettings.instance.clearLogin();
+                            if (!context.mounted) return;
                             Navigator.of(context).pop();
                             widget.onSignOut?.call();
                           },

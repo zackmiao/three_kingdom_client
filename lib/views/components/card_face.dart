@@ -115,7 +115,7 @@ class CardFace extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ---------- 1. 卡面插画（等比铺满，不横向挤压） ----------
+          // ---------- 1. 卡面插画（完整铺满，不叠加任何遮罩） ----------
           Image.asset(
             'assets/cards/$typeKey.png',
             fit: BoxFit.cover,
@@ -125,29 +125,7 @@ class CardFace extends StatelessWidget {
                 _drawnFallback(info, accent, unit),
           ),
 
-          // 顶部/底部压暗，保证牌名与效果简述始终清晰
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            height: h * 0.22,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.42),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ---------- 2. 左上角：花色 + 点数竖排 ----------
+          // ---------- 2. 左上角：花色 + 点数竖排（8px 安全内边距） ----------
           if (showCorner && (suitSymbol.isNotEmpty || points.isNotEmpty))
             Positioned(
               left: 8 * unit,
@@ -158,14 +136,15 @@ class CardFace extends StatelessWidget {
                   Text(
                     suitSymbol,
                     style: TextStyle(
-                      fontSize: 15 * unit,
+                      fontSize: 16 * unit,
                       height: 1.0,
                       fontWeight: FontWeight.w900,
                       color: isRed
                           ? const Color(0xFFFF8A80)
                           : const Color(0xFFF5F5F5),
                       shadows: const [
-                        Shadow(color: Colors.black, blurRadius: 4),
+                        Shadow(color: Colors.black, blurRadius: 5),
+                        Shadow(color: Colors.black, blurRadius: 2),
                       ],
                     ),
                   ),
@@ -173,98 +152,21 @@ class CardFace extends StatelessWidget {
                   Text(
                     points,
                     style: TextStyle(
-                      fontSize: 17 * unit,
+                      fontSize: 18 * unit,
                       height: 1.0,
                       fontWeight: FontWeight.w900,
                       color: isRed
                           ? const Color(0xFFFF8A80)
                           : const Color(0xFFF5F5F5),
                       shadows: const [
-                        Shadow(color: Colors.black, blurRadius: 4),
+                        Shadow(color: Colors.black, blurRadius: 5),
+                        Shadow(color: Colors.black, blurRadius: 2),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-
-          // ---------- 3. 顶部居中：大号牌名（楷体/宋体） ----------
-          Positioned(
-            left: 42 * unit,
-            right: 42 * unit,
-            top: 7 * unit,
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                  horizontal: 6 * unit, vertical: 2 * unit),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xE6F5E6C8),
-                    Color(0xCCE8D5A9),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(4 * unit),
-                border: Border.all(
-                    color: const Color(0x99A1885A), width: 0.8 * unit),
-              ),
-              child: Text(
-                '【$name】',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: _cnFonts.first,
-                  fontFamilyFallback: _cnFonts.sublist(1),
-                  fontSize: 17 * unit,
-                  height: 1.15,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.2,
-                  color: const Color(0xFF3E2723),
-                ),
-              ),
-            ),
-          ),
-
-          // ---------- 4. 底部：半透明羊皮纸效果简述 ----------
-          if (info.desc.isNotEmpty)
-            Positioned(
-              left: 5 * unit,
-              right: 5 * unit,
-              bottom: 5 * unit,
-              child: Container(
-                padding: EdgeInsets.fromLTRB(
-                    6 * unit, 3 * unit, 6 * unit, 3 * unit),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0xD9F3E7C8),
-                      Color(0xC4E5D3A6),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(4 * unit),
-                  border: Border.all(
-                      color: const Color(0x66A1885A), width: 0.7 * unit),
-                ),
-                child: Text(
-                  info.desc,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: _cnFonts.first,
-                    fontFamilyFallback: _cnFonts.sublist(1),
-                    fontSize: 8.8 * unit,
-                    height: 1.18,
-                    color: const Color(0xFF4E342E),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-
           // ---------- 5. 右上角：视为X 转化角标（悬浮，不占排版） ----------
           if (asTransformed != null && asTransformed!.isNotEmpty)
             Positioned(
@@ -290,7 +192,7 @@ class CardFace extends StatelessWidget {
           if (showIndex)
             Positioned(
               right: 4 * unit,
-              bottom: (info.desc.isNotEmpty ? 5 : 3) * unit,
+              bottom: 3 * unit,
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 3 * unit),
                 decoration: BoxDecoration(

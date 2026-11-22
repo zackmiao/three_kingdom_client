@@ -14,11 +14,13 @@ import 'services/user_service.dart';
 import 'views/lobby_screen.dart';
 import 'views/dialogs/settings_dialog.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   // 预热音频：提前解压 wav 到临时目录，避免第一声牌音卡顿
   unawaited(AudioService.instance.init());
-  // 读取本地设置（音量 / 动画速度 / 缩放等）
-  unawaited(AppSettings.instance.load());
+  // 读取本地设置（音量 / 动画速度 / 缩放 / 记住的账号）
+  // 必须先 await，否则登录页拿不到「上次登录的账号」去做自动登录
+  await AppSettings.instance.load();
   runApp(const ThreeKingdomApp());
 }
 
@@ -53,6 +55,29 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _connecting = false;
   String _statusMsg = "";
   StreamSubscription<Packet>? _sub;
+
+  /// 记住我：下次启动直接自动登录
+  bool _rememberMe = true;
+  bool _autoLoginTried = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = AppSettings.instance;
+    _ipController.text = s.lastHost;
+    _portController.text = s.lastPort;
+    _nameController.text = s.savedUser;
+    _passwordController.text = s.savedPassword;
+    _rememberMe = s.autoLogin;
+    if (_rememberMe && s.savedUser.isNotEmpty && s.savedPassword.isNotEmpty) {
+      _statusMsg = "正在自动登录 ${s.savedUser}…";
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _autoLoginTried) return;
+        _autoLoginTried = true;
+        _accountAction(register: false);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -167,6 +192,13 @@ class _LoginScreenState extends State<LoginScreen> {
       avatarBytes: avatar,
       isBeta: parts.length > 3 && parts[3].trim() == "1",
     );
+    // 记住账号：下次启动自动登录（关闭「记住我」则只记服务器地址）
+    await AppSettings.instance.saveLogin(
+      name: name,
+      password: pwd,
+      host: _ipController.text.trim(),
+      port: _portController.text.trim(),
+    );
     _enterLobby(id, name);
   }
 
@@ -185,6 +217,10 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     Account.instance.signOut();
+    await AppSettings.instance.saveServer(
+      host: _ipController.text.trim(),
+      port: _portController.text.trim(),
+    );
     _enterLobby(id, name);
   }
 
@@ -346,7 +382,32 @@ class _LoginScreenState extends State<LoginScreen> {
                           labelText: '密码 (游客模式可留空)',
                           border: OutlineInputBorder()),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _rememberMe,
+                          activeColor: Colors.amber[700],
+                          onChanged: _connecting
+                              ? null
+                              : (v) async {
+                                  setState(() => _rememberMe = v ?? false);
+                                  AppSettings.instance.autoLogin = _rememberMe;
+                                  if (!_rememberMe) {
+                                    await AppSettings.instance.clearLogin();
+                                  } else {
+                                    await AppSettings.instance.save();
+                                  }
+                                },
+                        ),
+                        const Expanded(
+                          child: Text('记住我（下次启动自动登录）',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 13)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       height: 44,

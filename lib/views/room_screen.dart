@@ -84,8 +84,10 @@ class _RoomScreenState extends State<RoomScreen> {
         HeroCatalog.instance.update(packet.data);
         setState(() => _heroes = HeroCatalog.instance.heroes);
       } else if (packet.command == Command.HERO_CANDIDATES) {
-        // 选将改为在开局后（进入对局界面）进行，房间内只展示候选、不弹窗
-        _candidates.value = HeroModel.parseAll(packet.data);
+        // 房间级候选（开局后由对局内的「选将阶段」用 DRAW| 前缀另行下发）
+        if (!packet.data.startsWith('DRAW|')) {
+          _candidates.value = HeroModel.parseAll(packet.data);
+        }
       } else if (packet.command == Command.AVATAR) {
         _onAvatar(packet.data);
       } else if (packet.command == Command.LEAVE_ROOM) {
