@@ -53,9 +53,17 @@ class _RoomScreenState extends State<RoomScreen> {
   };
 
   /// 房主可切换的模式（测试模式仅内测账号可见）
-  Map<String, String> get _visibleModeLabels => Account.instance.beta
-      ? _modeLabels
-      : Map<String, String>.from(_modeLabels)..remove('TEST');
+  ///
+  /// 注意：[_modeLabels] 是 `const` 常量字面量，本身是**不可修改**的 map，
+  /// 直接对它做 `remove('TEST')` 会抛 `UnsupportedError: Cannot modify unmodifiable map`；
+  /// 所以这里先用 `Map<String, String>.of(...)` 复制出一份可变副本再删键。
+  Map<String, String> get _visibleModeLabels {
+    final labels = Map<String, String>.of(_modeLabels);
+    if (!Account.instance.beta) {
+      labels.remove('TEST');
+    }
+    return labels;
+  }
 
   String get _modeLabel => _modeLabels[_mode] ?? '身份场';
 
