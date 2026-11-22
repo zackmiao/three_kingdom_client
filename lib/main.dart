@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'network/packet.dart';
@@ -34,6 +35,18 @@ class ThreeKingdomApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF1E1E24),
+      ),
+      // 允许鼠标拖动滚动（火攻/五谷等横向牌阵在桌面端也划得动）
+      builder: (context, child) => ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse,
+            PointerDeviceKind.trackpad,
+            PointerDeviceKind.stylus,
+          },
+        ),
+        child: child ?? const SizedBox.shrink(),
       ),
       home: const LoginScreen(),
     );

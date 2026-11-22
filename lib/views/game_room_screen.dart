@@ -257,9 +257,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         }
         break;
       case Command.SHOW_JUDGE_RESULT:
-        // 判定牌：从牌堆飞一张牌到被判定的角色身上，再弹判定结果
+        // 判定牌：直接弹判定结果窗口（不再做「牌飞向武将」的特效）
         AudioService.instance.playSfx('judge');
-        _spawnJudgeFlight(packet.data);
         JudgeResultDialog.show(context, packet.data);
         break;
       case Command.CARD_PLAYED:
@@ -654,32 +653,6 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   /// 判定：一张牌从牌堆飞向被判定的角色（payload `玩家|锦囊|牌描述|typeKey|suitKey|point|effect`）
-  void _spawnJudgeFlight(String data) {
-    final seg = data.split('|');
-    if (seg.length < 5) return;
-    final who = seg[0].trim();
-    final typeKey = seg[3].trim();
-    final suitKey = seg[4].trim();
-    final point = seg.length > 5 ? seg[5].trim() : '';
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final id = _findPlayerIdByName(who) ?? widget.playerId;
-      final to = _stageCenterOf(_seatKeyOf(id));
-      if (to == null) return;
-      _spawnFlight(
-        toPos: to,
-        dest: 'seat',
-        typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
-        suitSymbol: _suitSymbolOf(suitKey),
-        points: point,
-        isRed: suitKey == 'HEART' || suitKey == 'DIAMOND',
-        width: 78,
-        height: 110,
-        arc: 44,
-      );
-    });
-  }
-
   /// 在某个角色头顶飘一条数字（掉血 -1 / 回复 +1 / 护甲 🛡）。找不到人就退回屏幕中央。
   /// 受击时让该玩家的武将卡边框闪红 520ms
   void _flashSeat(String playerName) {    final id = _findPlayerIdByName(playerName);
@@ -2271,6 +2244,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   /// 判断这张牌现在能不能用：不能用的一律置暗（响应阶段看能不能响应，出牌阶段看次数/条件）。
   bool _isCardPlayableNow(CardModel card) {
+    // 弃牌阶段：所有手牌都能选（不要再把牌置暗）
+    if (_isDiscardPhase) return true;
     final prompt = _askPrompt;
     final bool isSha = card.typeKey == 'SHA' ||
         card.typeKey == 'FIRE_SHA' ||
@@ -2523,6 +2498,54 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       backgroundColor: Colors.deepOrangeAccent,
       duration: const Duration(seconds: 2),
     ));
+  }
+
+  /// 测试模式：选择附身的座位（选自己 = 回到自己的座位）。
+  void _showPossessDialog() {
+    final me = _heroName.isEmpty ? '我' : _heroName;
+    final options = <MapEntry<String, String>>[
+      MapEntry(widget.playerId, '自己（$me）'),
+      for (final o in _opponents)
+        if (o.alive) MapEntry(o.id, o.hero.isNotEmpty ? o.hero : o.name),
+    ];
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2B2118),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0x88FFD9A0))),
+        title: const Text('🧪 附身座位', style: TextStyle(color: Color(0xFFFFD9A0))),
+        content: SizedBox(
+          width: 320,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('附身后你将替这个座位出牌、响应，出牌没有时间限制。',
+                style: TextStyle(fontSize: 12, color: Color(0xFFBCAAA4))),
+            const SizedBox(height: 10),
+            for (final e in options)
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    _socket.sendPacket(Packet(
+                        command: Command.TEST_POSSESS,
+                        senderId: widget.playerId,
+                        data: e.key));
+                  },
+                  child: Text(e.value,
+                      style: const TextStyle(color: Color(0xFFFFE0B2), fontSize: 13)),
+                ),
+              ),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消', style: TextStyle(color: Color(0xFF9E9E9E)))),
+        ],
+      ),
+    );
   }
 
   void _sendResponse(String text) {
@@ -3353,6 +3376,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           }),
           if (AppSettings.instance.showBattleLog)
             tool(Icons.receipt_long, '战况', () => _scaffoldKey.currentState?.openEndDrawer()),
+          if (_gameMode == 'TEST')
+            tool(Icons.auto_awesome, '摸一张', () {
+              _socket.sendPacket(Packet(
+                  command: Command.TEST_GRANT_CARD, senderId: widget.playerId, data: ''));
+              _flash('🧪【测试】已请求发一张牌', Colors.lightGreenAccent);
+            }),
+          if (_gameMode == 'TEST')
+            tool(Icons.switch_account, '附身', _showPossessDialog),
           tool(Icons.settings, '设置', () => SettingsDialog.show(context)),
         ],
       ),

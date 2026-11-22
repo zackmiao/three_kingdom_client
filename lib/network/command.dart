@@ -30,6 +30,10 @@ enum Command {
     ADD_AI,
     REMOVE_AI,
     START_GAME,
+  /// 测试模式：给自己发一张牌（data 为空则从牌堆摸一张）
+  TEST_GRANT_CARD,
+  /// 测试模式：附身到某个座位（data = 座位 id，空则回到自己）
+  TEST_POSSESS,
     // 房间玩法模式：IDENTITY / TEAM_2V2 / LANDLORD
     SET_MODE,
     // 抽将候选：`;` 分隔的武将序列化串（最多 3 名）

@@ -7,8 +7,6 @@ import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
 import '../services/user_service.dart';
-import 'components/hero_portrait.dart';
-import 'dialogs/hero_select_dialog.dart';
 import 'game_room_screen.dart';
 import 'hero_book_screen.dart';
 import 'lobby_screen.dart';
@@ -40,7 +38,6 @@ class _RoomScreenState extends State<RoomScreen> {
   String _state = "WAITING";
   String _mode = "IDENTITY";
   List<RoomMemberModel> _members = [];
-  List<HeroModel> _heroes = HeroCatalog.instance.heroes;
   final ValueNotifier<List<HeroModel>> _candidates = ValueNotifier<List<HeroModel>>(const []);
   final Set<String> _avatarRequested = <String>{};
   bool _navigating = false;
@@ -82,7 +79,6 @@ class _RoomScreenState extends State<RoomScreen> {
         _maybeGoToGame();
       } else if (packet.command == Command.HERO_LIST) {
         HeroCatalog.instance.update(packet.data);
-        setState(() => _heroes = HeroCatalog.instance.heroes);
       } else if (packet.command == Command.HERO_CANDIDATES) {
         // 房间级候选（开局后由对局内的「选将阶段」用 DRAW| 前缀另行下发）
         if (!packet.data.startsWith('DRAW|')) {
@@ -173,57 +169,6 @@ class _RoomScreenState extends State<RoomScreen> {
             .toList();
   }
 
-  void _showChangeHeroDialog({String? targetMemberId, String? targetTitle}) {
-    if (_heroes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('武将列表还没同步到本机，请点“准备/取消准备”刷新一次房间状态'),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 3),
-      ));
-      // 主动刷新：切换一次准备状态会让服务端重新下发房间同步与武将池
-      _socket.sendPacket(Packet(
-          command: Command.TOGGLE_READY, senderId: widget.playerId, data: "REFRESH"));
-      return;
-    }
-
-    final occupiedHeroes = _members
-        .where((m) => m.id != (targetMemberId ?? widget.playerId))
-        .map((m) => m.heroName)
-        .toSet();
-    final available = _heroes.where((h) => !occupiedHeroes.contains(h.name)).toList();
-
-    if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('所有可选武将均已被挑选'),
-        backgroundColor: Colors.redAccent,
-      ));
-      return;
-    }
-
-    final myHero = _members
-        .firstWhere((m) => m.id == (targetMemberId ?? widget.playerId),
-            orElse: () => _members.first)
-        .heroName;
-
-    HeroSelectDialog.show(
-      context,
-      available,
-      title: targetTitle ?? '挑选出战武将（不可重复）',
-      currentHero: myHero,
-      onSelect: (hero) {
-        if (targetMemberId != null && targetMemberId != widget.playerId) {
-          _socket.sendPacket(Packet(
-              command: Command.SELECT_HERO,
-              senderId: widget.playerId,
-              data: '$targetMemberId:${hero.name}'));
-        } else {
-          _socket.sendPacket(
-              Packet(command: Command.SELECT_HERO, senderId: widget.playerId, data: hero.name));
-        }
-      },
-    );
-  }
-
   void _setMode(String modeKey) {
     _socket.sendPacket(
         Packet(command: Command.SET_MODE, senderId: widget.playerId, data: modeKey));
@@ -312,15 +257,8 @@ class _RoomScreenState extends State<RoomScreen> {
                 final bool isThisHost = m.id == _hostId;
                 final bool isMe = m.id == widget.playerId;
 
-                return GestureDetector(
-                  onTap: () {
-                    if (isHost && m.isAi) {
-                      _showChangeHeroDialog(
-                          targetMemberId: m.id, targetTitle: '为【${m.name}】选择出战武将');
-                    }
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
+                return Container(
+                  decoration: BoxDecoration(
                       color: isMe ? const Color(0xFF1E2838) : const Color(0xFF262732),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
@@ -352,22 +290,8 @@ class _RoomScreenState extends State<RoomScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: SizedBox(
-                                width: 74,
-                                height: 100,
-                                child: HeroPortrait(hero: m.heroName),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text('出战: 【${m.heroName}】',
-                                style: const TextStyle(
-                                    color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            if (isHost && m.isAi)
-                              const Text('(点击换将)', style: TextStyle(color: Colors.cyanAccent, fontSize: 10)),
-                            const SizedBox(height: 4),
+                            // 出战武将改为开局后选将，房间内不再展示
+                            const SizedBox(height: 2),
                             Text(
                                 isThisHost
                                     ? "【房主】"
@@ -395,7 +319,6 @@ class _RoomScreenState extends State<RoomScreen> {
                           ),
                       ],
                     ),
-                  ),
                 );
               },
             ),
