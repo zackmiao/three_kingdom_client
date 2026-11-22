@@ -123,4 +123,20 @@ void main() {
     expect(CardFace.cardAspect, closeTo(5 / 7, 1e-9));
     expect(CardFace.heightFor(130), closeTo(182, 1e-6));
   });
+
+  testWidgets('多牌（12 张）时重叠排布不溢出且尺寸不变', (tester) async {
+    final cards = <CardModel>[
+      for (var i = 0; i < 12; i++) card(i, i.isEven ? 'SHA' : 'TAO', '杀'),
+    ];
+    await pumpHand(tester, cards: cards, shaBonus: true);
+
+    expect(tester.takeException(), isNull);
+    final faces = find.byType(CardFace);
+    expect(faces, findsNWidgets(cards.length));
+    for (var i = 0; i < cards.length; i++) {
+      final size = tester.getSize(faces.at(i));
+      expect(size.width, HandCardArea.cardW);
+      expect(size.height, HandCardArea.cardH);
+    }
+  });
 }
