@@ -51,6 +51,9 @@ class TableSeatCard extends StatelessWidget {
   /// 护盾值（先于护甲承伤），显示在体力勾玉上方。
   /// 武将牌上扣置的牌数量（【弑龙】【成务】），左上角显示「扣:N」。
   final int exileCount;
+  /// 玩家选中一张需要指定目标的牌时：该角色是合法目标 → 头顶显示「跳动宝剑」提示
+  final bool showTargetSword;
+
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Function(CardModel droppedCard, String targetId)? onCardDropped;
@@ -87,6 +90,7 @@ class TableSeatCard extends StatelessWidget {
     this.wineBonus = 0,
     this.faction = "",
     this.exileCount = 0,
+    this.showTargetSword = false,
     this.onTap,
     this.onLongPress,
     this.onCardDropped,
@@ -951,7 +955,19 @@ class TableSeatCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          card,
+          // 合法可选目标：武将卡正上方悬浮「跳动宝剑」
+          Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.topCenter,
+            children: [
+              card,
+              if (showTargetSword)
+                Positioned(
+                  top: -16,
+                  child: _JumpingSword(size: compact ? 34 : 28),
+                ),
+            ],
+          ),
           SizedBox(
             height: bubbleH,
             child: isCurrentTurn
@@ -1024,6 +1040,68 @@ class _WaitingPulseState extends State<_WaitingPulse>
                   spreadRadius: 1 + 2 * v,
                 ),
               ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+/// 「跳动宝剑」：玩家选中需要指定目标的牌时，在合法可选目标上方上下往复跳动的赤金宝剑
+/// （±6px 浮动 + 金色光晕），提示「点这张席位就能指定」。
+class _JumpingSword extends StatefulWidget {
+  const _JumpingSword({required this.size});
+
+  final double size;
+
+  @override
+  State<_JumpingSword> createState() => _JumpingSwordState();
+}
+
+class _JumpingSwordState extends State<_JumpingSword>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final double t = Curves.easeInOut.transform(_c.value);
+          return Transform.translate(
+            offset: Offset(0, -6 + 12 * t),
+            child: Container(
+              width: widget.size,
+              height: widget.size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const RadialGradient(
+                  colors: [Color(0xFFFFF59D), Color(0xFFC9A227)],
+                ),
+                border: Border.all(color: const Color(0xFFFFD54F), width: 1.4),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFC107).withValues(alpha: 0.55 + 0.35 * t),
+                    blurRadius: 10 + 8 * t,
+                    spreadRadius: 1.5,
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.gavel,
+                size: widget.size * 0.62,
+                color: const Color(0xFF4A2E00),
+              ),
             ),
           );
         },

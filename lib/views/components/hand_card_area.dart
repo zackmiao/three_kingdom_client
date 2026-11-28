@@ -26,6 +26,10 @@ class HandCardArea extends StatefulWidget {
   /// 身上有【酒】加成时，手牌里的【杀】右上角标注「伤害+1」
   final bool shaBonus;
 
+  /// 多选场景（弃牌阶段等）：按住并横向滑动时，滑过的手牌会被加入选择。
+  /// 参数是该牌的 `CardModel.index`。
+  final ValueChanged<int>? onSlideSelect;
+
   const HandCardArea({
     super.key,
     required this.handCards,
@@ -37,6 +41,7 @@ class HandCardArea extends StatefulWidget {
     this.onCardDragEnd,
     this.isPlayable,
     this.shaBonus = false,
+    this.onSlideSelect,
   });
 
   /// 单张手牌标准外框（全项目共用，禁止在特殊状态分支里改尺寸）
@@ -267,11 +272,39 @@ class _HandCardAreaState extends State<HandCardArea> {
         if (scrollable) {
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: stack,
+            child: _withSlideSelect(stack, cards, step, totalW, avail),
           );
         }
-        return Center(child: stack);
+        return Center(child: _withSlideSelect(stack, cards, step, totalW, avail));
       },
+    );
+  }
+
+  /// 给手牌区套上「按住滑动多选」：横向拖过哪张牌，就把哪张牌加入选择。
+  Widget _withSlideSelect(
+    Widget child,
+    List<CardModel> cards,
+    double step,
+    double totalW,
+    double avail,
+  ) {
+    if (widget.onSlideSelect == null) return child;
+
+    void slideAt(Offset localPosition) {
+      if (cards.isEmpty) return;
+      final double left = (math.max(totalW, avail) - totalW) / 2;
+      final double dx = localPosition.dx - left;
+      int i = step <= 0 ? 0 : (dx / step).floor();
+      if (i < 0) i = 0;
+      if (i > cards.length - 1) i = cards.length - 1;
+      widget.onSlideSelect!(cards[i].index);
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onPanStart: (d) => slideAt(d.localPosition),
+      onPanUpdate: (d) => slideAt(d.localPosition),
+      child: child,
     );
   }
 }

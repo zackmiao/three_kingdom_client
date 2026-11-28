@@ -115,6 +115,9 @@ class ActionPromptBar extends StatelessWidget {
     // 除害 / 选目标 / 是否发动 模式下不需要勾选手牌
     final canConfirm =
         isChuHaiMode || selectedCount > 0 || (isTargetOnly && hasTarget) || isConfirmAsk;
+    // 红色倒计时进度条（响应 / 出牌都需要一眼看出剩余时间）
+    final double barRatio =
+        totalSeconds <= 0 ? 0.0 : (secondsLeft / totalSeconds).clamp(0.0, 1.0);
 
     return Container(
       width: double.infinity,
@@ -131,6 +134,22 @@ class ActionPromptBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 顶部红色倒计时进度条
+          if (totalSeconds > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: barRatio,
+                  minHeight: 5,
+                  backgroundColor: const Color(0x33FFFFFF),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    secondsLeft <= 5 ? const Color(0xFFFF1744) : const Color(0xFFE53935),
+                  ),
+                ),
+              ),
+            ),
           // 第一行：状态徽章 + 倒计时 + 提示文字
           Row(
             children: [

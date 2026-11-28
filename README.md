@@ -328,3 +328,13 @@ lib/
 | 修复 ListTile 材质断言 | 房间列表 `ListView.separated` 外层补 `Material(type: MaterialType.transparency)`，解决「ListTile requires a Material widget ancestor」 | `lobby_screen.dart` |
 | 修复 Duplicate keys | `WuGuSlot` 新增唯一 `keyId`/`uniqueKey`（牌池可能有同描述同花色的两张牌），展台格位按 `uniqueKey` 生成 `GlobalKey` 与 `ValueKey`；手牌 `Positioned` 补 `ValueKey('hand-<cardId>-<位置>')` | `wugu_stage.dart`、`game_room_screen.dart`、`hand_card_area.dart` |
 | 回归测试 | 新增「两张完全相同的牌不触发 Duplicate keys」与「房间设置第 8 段显示与调节」两条 widget 测试（共 41 条） | `test/wugu_stage_test.dart`、`test/room_screen_mode_chips_test.dart` |
+## 本轮：火攻新交互 / 跳动宝剑 / 弃牌滑动多选
+
+| 项目 | 实现 | 位置 |
+| --- | --- | --- |
+| 【火攻】去掉居中大弹窗 | 不再弹 `HuoGongDialog`：目标亮出的那张牌直接渲染在 `CenterStageView` 里【火攻】牌右侧并排，牌面下半部分叠半透明黑底白字水印「「目标名」火攻展示」 | `CenterStageView`（`PlayedCard.watermark`）、`game_room_screen._huoGongShown` |
+| 【火攻】底部真实手牌点选 | 弃同花色那一步只高亮与展示牌同花色的手牌（金框可点），其余自动压暗禁点；点选后点【确定】完成，点【取消】放弃加伤 | `game_room_screen._huoGongDiscardSuit`、`_isCardPlayableNow` |
+| 底部操作栏倒计时 | `ActionPromptBar` 顶部新增红色进度条（≤5 秒转深红），配合既有【确定】/【取消】与提示文字 | `action_prompt_bar.dart` |
+| 全卡牌目标校验 `canTargetPlayer` | 新增 `targetBlockReason(typeKey, TargetContext, attackRange, wuShengLocked)`：杀类（排除自己 + 距离）、决斗、过河拆桥、顺手牵羊（距离 1 + 三区非空）、乐不思蜀 / 兵粮寸断（判定区已有同名延时锦囊）、火攻（有手牌，含自己）、铁索连环（含自己、最多 2 名） | `lib/models/target_rules.dart` |
+| 跳动宝剑 | 选中需要指定目标的牌后，所有合法目标席位上方浮现赤金宝剑（上下 ±6px 往复 + 金色光晕），不可选目标压暗且不显示；点击时给出具体拦截原因 | `table_seat_card.dart._JumpingSword`、`game_room_screen` 的 `seatWidget` / 主视角席位 |
+| 弃牌阶段滑动多选 | 弃牌阶段按住手牌横向滑动即可连续勾选（滑过哪张选哪张），替代一张张点 | `hand_card_area.dart._withSlideSelect` |

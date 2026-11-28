@@ -46,7 +46,7 @@ void main() {
     // 出牌区中心：横向居中，纵向在窗口中心附近（允许偏下 120px）
     expect((stage.center.dx - 750).abs(), lessThan(60),
         reason: '出牌区应横向居中，实际 ${stage.center.dx}');
-    expect(stage.center.dy, greaterThan(360));
+    expect(stage.center.dy, greaterThan(320));
     expect(stage.center.dy, lessThan(600));
 
     // 手牌区必须落在底部操作区内

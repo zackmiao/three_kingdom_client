@@ -11,6 +11,9 @@ class PlayedCard {
   final String? points;
   final String? suit;
 
+  /// 牌面下半部分的半透明黑底白字水印（例如「某某 火攻展示」）
+  final String? watermark;
+
   PlayedCard({
     required this.name,
     this.typeKey,
@@ -18,6 +21,7 @@ class PlayedCard {
     this.targetNames = const [],
     this.points,
     this.suit,
+    this.watermark,
   });
 }
 
@@ -95,7 +99,7 @@ class _CardWithWatermark extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 使用官方牌面
+          // 使用官方牌面（带水印时牌面下半部分叠半透明黑底白字说明）
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
@@ -104,17 +108,53 @@ class _CardWithWatermark extends StatelessWidget {
                 BoxShadow(color: Color(0x33FFC107), blurRadius: 26, spreadRadius: 1),
               ],
             ),
-            child: CardFace(
-              typeKey: card.typeKey ?? '',
-              name: card.name,
-              suitSymbol: isRed ? '♥' : '♠',
-              points: card.points ?? '',
-              isRed: isRed,
-              index: 0,
-              width: CenterStageView.cardW,
-              height: CenterStageView.cardH,
-              showIndex: false,
-              showCorner: card.points != null,
+            child: Stack(
+              children: [
+                CardFace(
+                  typeKey: card.typeKey ?? '',
+                  name: card.name,
+                  suitSymbol: isRed ? '♥' : '♠',
+                  points: card.points ?? '',
+                  isRed: isRed,
+                  index: 0,
+                  width: CenterStageView.cardW,
+                  height: CenterStageView.cardH,
+                  showIndex: false,
+                  showCorner: card.points != null,
+                ),
+                if (card.watermark != null && card.watermark!.isNotEmpty)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: CenterStageView.cardH * 0.42,
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xA6000000),
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(8),
+                          bottomRight: Radius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        card.watermark!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.25,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6,
+                          shadows: [
+                            Shadow(color: Colors.black, blurRadius: 6, offset: Offset(0, 1)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           // 水印：来源 对 目标

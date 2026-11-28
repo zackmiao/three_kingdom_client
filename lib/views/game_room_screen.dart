@@ -8,6 +8,7 @@ import '../models/hero_model.dart';
 import '../models/opponent_model.dart';
 import '../models/prompt_rules.dart';
 import '../models/skill_model.dart';
+import '../models/target_rules.dart';
 import '../network/command.dart';
 import '../network/packet.dart';
 import '../network/socket_service.dart';
@@ -25,7 +26,6 @@ import 'components/wugu_stage.dart';
 import 'dialogs/choice_prompt_dialog.dart';
 import 'dialogs/hero_draw_dialog.dart';
 import 'dialogs/hero_select_dialog.dart';
-import 'dialogs/huogong_dialog.dart';
 import 'dialogs/judge_result_dialog.dart';
 import 'dialogs/lucky_card_dialog.dart';
 import 'dialogs/pindian_dialog.dart';
@@ -90,6 +90,15 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   String _offHorse = "无";
   List<String> _judgeAreaCards = [];
   List<String> _myMarks = [];
+
+  /// 【火攻】第二步：需要弃置的同花色（suitKey）。为 null 表示当前不是火攻弃牌步骤。
+  String? _huoGongDiscardSuit;
+  /// 【火攻】中被展示的那张牌（在中央结算台并排展示，带「XX 火攻展示」水印）
+  Map<String, String>? _huoGongShown;
+  /// 【火攻】的目标名（水印用）
+  String _huoGongTargetName = '';
+  /// 火攻第一步：我自己的牌被要求展示
+  bool _huoGongExposeMine = false;
 
   /// 酒加成（>0 时主视角武将卡显示红色血气）
   int _wineBonus = 0;
@@ -340,6 +349,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _isRenDeMode = false;
           _isZhiHengMode = false;
           _isChuHaiMode = false;
+          _huoGongDiscardSuit = null;
+          _huoGongShown = null;
+          _huoGongExposeMine = false;
         });
         _startCountdown();
         break;
@@ -356,29 +368,44 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _isRenDeMode = false;
           _isZhiHengMode = false;
           _isChuHaiMode = false;
+          _huoGongDiscardSuit = null;
+          _huoGongShown = null;
+          _huoGongExposeMine = false;
         });
         _startCountdown();
 
         if (ChoicePromptDialog.matches(packet.data) && !_isConfirmAsk) {
           ChoicePromptDialog.show(context, packet.data, (v) => _sendResponse(v));
         } else if (packet.data.contains("【火攻】请弃置")) {
-          // 火攻第二步：左边展示牌、右边挑同花色弃置
+          // 火攻第二步（我是使用者）：中央并排展示目标亮出的那张牌 + 底部真实手牌只留同花色
           final token = packet.data.split('|');
-          if (token.length >= 5) {
-            HuoGongDialog.showDiscardSameSuit(
-              context,
-              shownTypeKey: token[1],
-              shownSuitKey: token[2],
-              shownPoint: token[3],
-              shownName: token[4],
-              handCards: _handCards,
-              onSelect: (idx) => _sendResponse(idx.toString()),
-              onGiveUp: () => _sendResponse('PASS'),
-            );
-          }
-        } else if (packet.data.contains("火攻展示")) {
-          HuoGongDialog.showSelectCardToExpose(
-              context, _handCards, (idx) => _sendResponse(idx.toString()));
+          final shownTypeKey = token.length >= 2 ? token[1] : '';
+          final shownSuitKey = token.length >= 3 ? token[2] : '';
+          final shownPoint = token.length >= 4 ? token[3] : '';
+          final shownName = token.length >= 5 ? token[4] : '展示牌';
+          setState(() {
+            _isConfirmAsk = false;
+            _huoGongDiscardSuit = shownSuitKey;
+            _huoGongExposeMine = false;
+            _huoGongShown = <String, String>{
+              'typeKey': shownTypeKey,
+              'suitKey': shownSuitKey,
+              'points': shownPoint,
+              'name': shownName,
+              'owner': _huoGongTargetName,
+            };
+            _askPrompt =
+                '$_huoGongTargetName 展示了【$shownName】，请选择 1 张${_suitCn(shownSuitKey)}手牌弃置';
+          });
+        } else if (packet.data.contains("【火攻展示】")) {
+          // 火攻第一步（我是目标）：直接从底部手牌里挑一张展示
+          setState(() {
+            _isConfirmAsk = false;
+            _huoGongDiscardSuit = null;
+            _huoGongShown = null;
+            _huoGongExposeMine = true;
+            _askPrompt = '请从手牌中选择 1 张展示';
+          });
         } else if (packet.data.contains("拼点")) {
           PinDianDialog.show(context, packet.data, _handCards, (idx) => _sendResponse(idx.toString()));
         }
@@ -539,6 +566,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       }
       _activeCardSourceId = sourceId.isEmpty ? _findPlayerIdByName(sourceName) : sourceId;
       _activeCardTargetNames = List<String>.from(targetNames);
+      // 【火攻】记住目标名：第二步要在中央水印里写「XX 火攻展示」
+      if (resolvedTypeKey == 'HUO_GONG' && targetNames.isNotEmpty) {
+        _huoGongTargetName = targetNames.first;
+      }
       _activeNature = nature;
       // 目标光束逐个点亮，形成「按座次依次扫射」的节奏
       _activeCardTargetIds = <String>[];
@@ -1692,18 +1723,45 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   // ==================== 交互 ====================
 
-  bool _isCardRequiringTarget(CardModel card) {
-    final type = card.typeKey;
-    return type.contains('SHA') ||
-        type == 'DUEL' ||
-        type == 'GUO_HE_CHAI_QIAO' ||
-        type == 'SHUN_SHOU_QIAN_YANG' ||
-        type == 'HUO_GONG' ||
-        type == 'BING_LIANG_CUN_DUAN' ||
-        type == 'LE_BU_SI_SHU';
+  /// 花色中文名（【火攻】提示用）
+  String _suitCn(String suitKey) {
+    switch (suitKey.toUpperCase()) {
+      case 'HEART':
+        return '红桃';
+      case 'DIAMOND':
+        return '方块';
+      case 'CLUB':
+        return '梅花';
+      case 'SPADE':
+        return '黑桃';
+      default:
+        return '同花色';
+    }
+  }
+
+  bool _isCardRequiringTarget(CardModel card) => cardNeedsTarget(card.typeKey);
+
+  /// 当前选中的手牌类型（用于全卡牌目标合法性判定）
+  String? _selectedSingleTypeKey() {
+    if (_selectedIndices.isEmpty) return null;
+    for (final c in _handCards) {
+      if (_selectedIndices.contains(c.index)) return c.typeKey;
+    }
+    return null;
   }
 
   void _onConfirmAction() {
+    // 【火攻】两步交互（全部走底部真实手牌区，不再弹居中大窗）
+    if (_huoGongExposeMine || _huoGongDiscardSuit != null) {
+      if (_selectedIndices.isEmpty) {
+        _showToast(_huoGongExposeMine ? '请从手牌中选择 1 张展示' : '请选择 1 张同花色手牌弃置');
+        return;
+      }
+      final idx = (_selectedIndices.toList()..sort()).first;
+      _sendResponse(idx.toString());
+      return;
+    }
+
     // 服务端要求选择目标（【选择目标】前缀）
     if (_askPrompt != null && _askPrompt!.contains('【选择目标】')) {
       if (_selectedTargetIds.isEmpty) {
@@ -2656,6 +2714,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
   /// 判断这张牌现在能不能用：不能用的一律置暗（响应阶段看能不能响应，出牌阶段看次数/条件）。
   bool _isCardPlayableNow(CardModel card) {
+    // 【火攻】第二步：只有与展示牌同花色的手牌可选，其余压暗禁点
+    if (_huoGongDiscardSuit != null) {
+      return card.suitKey.toUpperCase() == _huoGongDiscardSuit!.toUpperCase();
+    }
     // 弃牌阶段：所有手牌都能选（不要再把牌置暗）
     if (_isDiscardPhase) return true;
     final prompt = _askPrompt;
@@ -2973,6 +3035,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _activeSkill = null;
       _skillParam = null;
       _chengWuCardId = null;
+      _huoGongDiscardSuit = null;
+      _huoGongShown = null;
+      _huoGongExposeMine = false;
     });
   }
 
@@ -3311,19 +3376,33 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
       Widget seatWidget(OpponentModel o) {
         final isOppTurn = _turnPlayerId == o.id;
-        // 选中【杀】类牌时，距离超出攻击范围的目标置灰并标注「距离不足」
-        final bool selectingSha = isTargetSelecting &&
-            _selectedIndices.any((i) => _handCards.any((c) =>
-                c.index == i &&
-                (c.typeKey == 'SHA' ||
-                    c.typeKey == 'FIRE_SHA' ||
-                    c.typeKey == 'THUNDER_SHA')));
-        final bool outOfRange =
-            selectingSha && o.alive && o.distance > _attackRange;
+        // 选中的牌 → 目标合法性（与服务端 CardPlayDispatcher 一致）
+        final String? selType = _selectedSingleTypeKey();
+        final TargetContext targetCtx = TargetContext(
+          id: o.id,
+          name: o.name,
+          isMe: false,
+          alive: o.alive,
+          distance: o.distance,
+          handCount: o.handCount,
+          equipCount: (o.equips.isEmpty || o.equips == '-') ? 0 : o.equips.split(',').length,
+          judgeCount: (o.judges.isEmpty || o.judges == '-') ? 0 : o.judges.split(',').length,
+          judgeNames: (o.judges.isEmpty || o.judges == '-') ? const <String>[] : o.judges.split(','),
+        );
+        final String? blockReason = (isTargetSelecting && selType != null)
+            ? targetBlockReason(
+                selType,
+                targetCtx,
+                attackRange: _attackRange,
+                wuShengLocked: _activeSkill == '武圣' && _selectedTargetIds.isNotEmpty,
+              )
+            : null;
+        final bool selectable = isTargetSelecting && selType != null && blockReason == null;
         return TableSeatCard(
           cardKey: ValueKey(o.id),
           id: o.id,
-          isOutOfRange: outOfRange,
+          isOutOfRange: isTargetSelecting && blockReason != null,
+          showTargetSword: selectable,
           isHitFlash: _hitSeats.contains(o.id),
           isDying: o.alive && o.hp <= 0,
           isWaitingResponse: _waitingSeatId == o.id,
@@ -3354,26 +3433,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           onCardDropped: (card, targetId) => _onCardDroppedToTarget(card, targetId),
           onTap: () {
             // 客户端目标合法性预校验（与服务端 CardPlayDispatcher 保持一致）
-            String? selType;
-            if (_selectedIndices.length == 1) {
-              for (final c in _handCards) {
-                if (c.index == _selectedIndices.first) {
-                  selType = c.typeKey;
-                  break;
-                }
-              }
-            }
-            final bool emptyRegion = o.handCount == 0 &&
-                (o.equips.isEmpty || o.equips == '-') &&
-                (o.judges.isEmpty || o.judges == '-');
-            if (selType == 'GUO_HE_CHAI_QIAO' || selType == 'SHUN_SHOU_QIAN_YANG') {
-              if (emptyRegion) {
-                _flash('${o.name} 手牌、装备区、判定区都是空的，无法指定', Colors.orangeAccent);
-                return;
-              }
-            }
-            if (selType == 'HUO_GONG' && o.handCount == 0) {
-              _flash('${o.name} 没有手牌，【火攻】无法指定', Colors.orangeAccent);
+            if (selType != null && blockReason != null) {
+              _flash('${o.name}：$blockReason', Colors.orangeAccent);
               return;
             }
             setState(() {
@@ -3385,6 +3446,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                   _selectedTargetIds.remove(o.id);
                 } else if (_selectedTargetIds.length < 2) {
                   _selectedTargetIds.add(o.id);
+                } else {
+                  _flash('【铁索连环】最多选择 2 名角色', Colors.orangeAccent);
                 }
               } else {
                 if (_selectedTargetIds.contains(o.id)) {
@@ -3455,7 +3518,19 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         children: [
                           KeyedSubtree(
                             key: _centerKey,
-                            child: CenterStageView(cards: _shownCards),
+                            child: CenterStageView(cards: [
+                              ..._shownCards,
+                              // 【火攻】目标亮出的那张牌：并排展示在火攻牌右侧，带水印
+                              if (_huoGongShown != null)
+                                PlayedCard(
+                                  name: _huoGongShown!['name'] ?? '展示牌',
+                                  typeKey: _huoGongShown!['typeKey'],
+                                  sourceName: _huoGongShown!['owner'] ?? '',
+                                  points: _huoGongShown!['points'],
+                                  watermark:
+                                      '「${_huoGongShown!['owner'] ?? '目标'}」火攻展示',
+                                ),
+                            ]),
                           ),
                           if (_dodgedStamp) _buildDodgeStamp(),
                           if (_responseCard != null)
@@ -3761,8 +3836,30 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                           enabled: _askPrompt != null,
                           isPlayable: _isCardPlayableNow,
                           shaBonus: _myMarks.any((m) => m.contains('酒')),
+                          // 弃牌阶段：按住横向滑动即可连续勾选，不必一张张点
+                          onSlideSelect: _isDiscardPhase
+                              ? (idx) {
+                                  if (!_selectedIndices.contains(idx)) {
+                                    setState(() => _selectedIndices.add(idx));
+                                  }
+                                }
+                              : null,
                           onCardTap: (card) {
                             if (_askPrompt == null) return;
+                            // 【火攻】两步（展示 / 弃同花色）都是「只选一张」，点新牌即替换
+                            if (_huoGongExposeMine || _huoGongDiscardSuit != null) {
+                              setState(() {
+                                if (_selectedIndices.length == 1 &&
+                                    _selectedIndices.contains(card.index)) {
+                                  _selectedIndices.clear();
+                                } else {
+                                  _selectedIndices
+                                    ..clear()
+                                    ..add(card.index);
+                                }
+                              });
+                              return;
+                            }
                             setState(() {
                               final canMultiSelect = _isDiscardPhase ||
                                   _isRenDeMode ||
@@ -3887,7 +3984,43 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     );
   }
 
+  /// 主视角席位作为目标时的拦截原因（null = 可以指定，例如【火攻】对自己 /【铁索】连环自己）
+  String? _selfTargetBlockReason(String selType) {
+    return targetBlockReason(
+      selType,
+      TargetContext(
+        id: widget.playerId,
+        name: widget.playerName,
+        isMe: true,
+        alive: !_isDead,
+        distance: 0,
+        handCount: _handCards.length,
+        equipCount: [_weapon, _armor, _defHorse, _offHorse]
+            .where((e) => e != '无' && e.isNotEmpty)
+            .length,
+        judgeCount: _judgeAreaCards.length,
+        judgeNames: _judgeAreaCards,
+      ),
+      attackRange: _attackRange,
+    );
+  }
+
+  /// 是否处于「正在给手牌指定目标」的状态（全卡牌目标校验 / 跳动宝剑用）
+  bool get _targetSelecting =>
+      _isChuHaiMode ||
+      _isZhangBaMode ||
+      _isRenDeMode ||
+      _activeSkill != null ||
+      (_askPrompt != null && _askPrompt!.contains('【选择目标】')) ||
+      (_selectedIndices.isNotEmpty &&
+          !_isResponding &&
+          !_isDiscardPhase &&
+          _handCards.any((c) =>
+              _selectedIndices.contains(c.index) &&
+              (_isCardRequiringTarget(c) || c.typeKey == 'TIE_SUO_LIAN_HUAN')));
+
   Widget _buildRightZone() {
+    final bool isTargetSelecting = _targetSelecting;
     // 展示全部技能（含锁定/被动技），被动技点击只能查看描述
     final manualSkills = _skills;
     // 技能多的武将（如司马昭 13 技）改用更紧凑的按钮，避免横向挤爆右栏
@@ -4066,19 +4199,20 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                             _turnPlayerId == widget.playerId ? _currentPhaseName : null,
                         isSelectedAsTarget:
                             _selectedTargetIds.contains(widget.playerId),
+                        // 合法可选目标（如【火攻】对自己、【铁索连环】含自己）显示跳动宝剑
+                        showTargetSword: isTargetSelecting &&
+                            _selectedSingleTypeKey() != null &&
+                            _selfTargetBlockReason(_selectedSingleTypeKey()!) == null,
+                        isOutOfRange: isTargetSelecting &&
+                            _selectedSingleTypeKey() != null &&
+                            _selfTargetBlockReason(_selectedSingleTypeKey()!) != null,
                         // 【铁索连环】可以选自己（1~2 名，可含使用者）；【火攻】也可以对自己使用
                         onTap: () {
-                          String? selType;
-                          if (_selectedIndices.length == 1) {
-                            for (final c in _handCards) {
-                              if (c.index == _selectedIndices.first) {
-                                selType = c.typeKey;
-                                break;
-                              }
-                            }
-                          }
-                          if (selType != 'TIE_SUO_LIAN_HUAN' &&
-                              selType != 'HUO_GONG') {
+                          final String? selType = _selectedSingleTypeKey();
+                          if (!isTargetSelecting || selType == null) return;
+                          final String? reason = _selfTargetBlockReason(selType);
+                          if (reason != null) {
+                            _flash('${widget.playerName}：$reason', Colors.orangeAccent);
                             return;
                           }
                           setState(() {
@@ -4090,6 +4224,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                                 _selectedTargetIds.clear();
                               }
                               _selectedTargetIds.add(widget.playerId);
+                            } else {
+                              _flash('【铁索连环】最多选择 2 名角色', Colors.orangeAccent);
                             }
                           });
                         },
