@@ -21,6 +21,7 @@ import 'components/game_background.dart';
 import 'components/hand_card_area.dart';
 import 'components/table_seat_card.dart';
 import 'components/target_arrow_painter.dart';
+import 'components/wugu_stage.dart';
 import 'dialogs/choice_prompt_dialog.dart';
 import 'dialogs/hero_draw_dialog.dart';
 import 'dialogs/hero_select_dialog.dart';
@@ -148,6 +149,28 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 群体锦囊横幅（南蛮入侵 / 万箭齐发）
   String? _aoeBanner;
 
+  /// ===== 【五谷丰登】全员共享选牌台 =====
+  List<WuGuSlot> _wuguSlots = const [];
+  final Map<String, GlobalKey> _wuguSlotKeys = <String, GlobalKey>{};
+  String _wuguPickerId = '';
+  String _wuguPickerName = '';
+  String _wuguPhase = ''; // ASK / PICK / SKIP / END
+  Timer? _wuguCloseTimer;
+
+  bool get _wuguVisible => _wuguSlots.isNotEmpty;
+
+  bool get _wuguCanPick =>
+      _wuguPhase == 'ASK' &&
+      _wuguPickerId == widget.playerId &&
+      _wuguSlots.any((s) => !s.taken);
+
+  String get _wuguStatusText {
+    if (_wuguPhase == 'END') return '全员选牌完毕，正在结算…';
+    if (_wuguCanPick) return '轮到你了！请点击选择一张牌';
+    if (_wuguPickerName.isNotEmpty) return '正在等待【$_wuguPickerName】选牌…';
+    return '正在结算…';
+  }
+
   bool _isZhangBaMode = false;
   bool _isRenDeMode = false;
   bool _isZhiHengMode = false;
@@ -210,6 +233,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     _subscription?.cancel();
     _cardDisplayTimer?.cancel();
     _countdownTimer?.cancel();
+    _wuguCloseTimer?.cancel();
     super.dispose();
   }
 
@@ -245,8 +269,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _selectedTargetIds.clear();
           _isZhangBaMode = false;
         });
-        // 同一轮内的多次五谷选牌共享历史：已选走的牌按下去标记「已选」
-        WuGuDialog.show(context, packet.data, _sendResponse);
+        // 共享选牌台已经在场（WU_GU_POOL 下发过）时直接点牌，不再弹旧对话框
+        if (!_wuguVisible) {
+          WuGuDialog.show(context, packet.data, _sendResponse);
+        }
+        break;
+      case Command.WU_GU_POOL:
+        _handleWuGuPool(packet.data);
         break;
       case Command.ASK_LUCKY:
         _handleLuckyPrompt(packet.data);
@@ -505,6 +534,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     if (resolvedTypeKey == 'NAN_MAN_RU_QIN') bannerText = '🐘 南蛮入侵';
     if (resolvedTypeKey == 'WAN_JIAN_QI_FA') bannerText = '🏹 万箭齐发';
     if (resolvedTypeKey == 'TAO_YUAN_JIE_YI') bannerText = '🌸 桃园结义';
+    if (resolvedTypeKey == 'WU_GU_FENG_DENG') bannerText = '🌾 五谷丰登';
     if (bannerText != null) {
       setState(() => _aoeBanner = bannerText);
       Timer(const Duration(milliseconds: 1700), () {
@@ -1050,7 +1080,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       final picker = wuguPick.group(1)!.trim();
       final what = wuguPick.group(2)!.trim();
       audio.playSfx('draw', volume: 0.5);
-      _flash('$picker 选走了 $what', const Color(0xFFFFC94D));
+      // 选牌台在场时中央大字会挡住展台，只在席位上方飘字
+      if (!_wuguVisible) {
+        _flash('$picker 选走了 $what', const Color(0xFFFFC94D));
+      }
       _spawnSeatFloat(picker, what, const Color(0xFFFFC94D));
     }
 
@@ -2284,6 +2317,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   void _flash(String text, Color color) {
+    // 五谷丰登选牌台在场时，中央大字会盖住展台 —— 改为在对应席位飘字
+    if (_wuguVisible) {
+      _spawnSeatFloat('', text, color);
+      return;
+    }
     setState(() {
       _flashText = text;
       _flashColor = color;
@@ -2292,6 +2330,185 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     Timer(const Duration(milliseconds: 1100), () {
       if (mounted) setState(() => _flashText = null);
     });
+  }
+
+  // ==================== 【五谷丰登】共享选牌台 ====================
+
+  /// 解析服务端下发的牌池：`pickerId#pickerName#ASK|PICK|SKIP|END#items`
+  /// items 里 `t|主人|描述|typeKey|suitKey|point` 是已被拿走的牌，
+  /// `idx=描述|typeKey|suitKey|point` 是还留在池里的牌。
+  void _handleWuGuPool(String data) {
+    final hash = data.split('#');
+    if (hash.length < 4) return;
+    final pickerId = hash[0].trim();
+    final pickerName = hash[1].trim();
+    final action = hash[2].trim();
+    final items = hash.sublist(3).join('#');
+
+    final takenTokens = <List<String>>[];
+    final avail = <WuGuSlot>[];
+    if (items.isNotEmpty) {
+      for (final raw in items.split(';')) {
+        if (raw.isEmpty) continue;
+        if (raw.startsWith('t|')) {
+          final seg = raw.split('|');
+          if (seg.length >= 6) takenTokens.add(seg);
+          continue;
+        }
+        final eq = raw.indexOf('=');
+        if (eq <= 0) continue;
+        final idx = int.tryParse(raw.substring(0, eq).trim());
+        final seg = raw.substring(eq + 1).split('|');
+        if (idx == null || seg.length < 4) continue;
+        avail.add(WuGuSlot(
+          idx: idx,
+          desc: seg[0],
+          typeKey: seg[1],
+          suitKey: seg[2],
+          point: seg[3],
+        ));
+      }
+    }
+
+    final prev = List<WuGuSlot>.of(_wuguSlots);
+    final pendingTaken = List<List<String>>.of(takenTokens);
+    final pendingAvail = List<WuGuSlot>.of(avail);
+    final next = <WuGuSlot>[];
+
+    // 先按上一轮的位置复用格子，保证「飞走 / 盖章」不会让其余牌跳位
+    for (final s in prev) {
+      if (s.taken) {
+        next.add(s.copyWith(clearIdx: true));
+        continue;
+      }
+      final ti = pendingTaken.indexWhere((t) =>
+          t[2] == s.desc && t[3] == s.typeKey && t[4] == s.suitKey && t[5] == s.point);
+      if (ti >= 0) {
+        final t = pendingTaken.removeAt(ti);
+        next.add(s.copyWith(owner: t[1], clearIdx: true));
+        continue;
+      }
+      final ai = pendingAvail.indexWhere((a) => a.signature == s.signature);
+      if (ai >= 0) {
+        final a = pendingAvail.removeAt(ai);
+        next.add(s.copyWith(idx: a.idx));
+        continue;
+      }
+      // 既不在池里、也没有 token（理论上不会发生）——按已选处理，避免残留可点
+      next.add(s.copyWith(owner: '已选', clearIdx: true));
+    }
+    for (final a in pendingAvail) {
+      next.add(a);
+    }
+    for (final t in pendingTaken) {
+      next.add(WuGuSlot(
+        desc: t[2],
+        typeKey: t[3],
+        suitKey: t[4],
+        point: t[5],
+        owner: t[1],
+      ));
+    }
+    for (final s in next) {
+      _wuguSlotKeys.putIfAbsent(s.signature, () => GlobalKey());
+    }
+
+    // 找出这一轮刚被拿走的牌 → 播飞牌 + 席位飘字
+    final newlyTaken = <WuGuSlot>[];
+    for (final s in next) {
+      if (!s.taken) continue;
+      bool wasFree = false;
+      for (final p in prev) {
+        if (p.signature == s.signature && !p.taken) {
+          wasFree = true;
+          break;
+        }
+      }
+      if (wasFree) newlyTaken.add(s);
+    }
+
+    _wuguCloseTimer?.cancel();
+    setState(() {
+      _wuguSlots = next;
+      _wuguPickerId = pickerId;
+      _wuguPickerName = pickerName;
+      _wuguPhase = action;
+    });
+
+    if (action == 'PICK') {
+      for (final s in newlyTaken) {
+        _flyWuGuPick(s, pickerName);
+      }
+    }
+    if (action == 'END') {
+      // 全员选完后延迟 0.8s 自动收起
+      _wuguCloseTimer = Timer(const Duration(milliseconds: 800), () {
+        if (!mounted) return;
+        setState(() {
+          _wuguSlots = const [];
+          _wuguPhase = '';
+          _wuguPickerId = '';
+          _wuguPickerName = '';
+        });
+      });
+    }
+  }
+
+  void _onWuGuPick(WuGuSlot slot) {
+    if (slot.idx == null) return;
+    _sendResponse('${slot.idx}');
+  }
+
+  /// 被拿走的那张牌：从展台原位飞向拿牌者的席位，并在其席位飘「获得【X】」
+  void _flyWuGuPick(WuGuSlot slot, String ownerName) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final from = _stageCenterOf(_wuguSlotKeys[slot.signature] ?? _centerKey) ??
+          _stageCenterOf(_centerKey);
+      final ownerId = _findPlayerIdByName(ownerName);
+      final seatKey = ownerId == null ? null : _seatKeys[ownerId];
+      final to = seatKey == null ? null : _stageCenterOf(seatKey);
+      if (from != null) {
+        _spawnFlight(
+          fromPos: from,
+          toPos: to,
+          dest: 'seat',
+          typeKey: slot.typeKey,
+          name: slot.desc,
+          suitSymbol: WuGuSlot.suitSymbol(slot.suitKey),
+          points: slot.point,
+          isRed: slot.isRed,
+          width: 74,
+          height: 104,
+          arc: 42,
+        );
+      }
+      AudioService.instance.playCard(slot.desc);
+      if (ownerName.isNotEmpty) {
+        _spawnSeatFloat(ownerName, '获得【${slot.desc}】', const Color(0xFFFFD54F));
+      }
+    });
+  }
+
+  Widget _buildWuGuStageLayer() {
+    if (!_wuguVisible) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: Container(
+        color: const Color(0x33000000),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            child: WuGuStage(
+              slots: _wuguSlots,
+              statusText: _wuguStatusText,
+              canPick: _wuguCanPick,
+              slotKeys: _wuguSlotKeys,
+              onPick: _onWuGuPick,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// 判断这张牌现在能不能用：不能用的一律置暗（响应阶段看能不能响应，出牌阶段看次数/条件）。
@@ -3753,6 +3970,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
             ),
           ),
         ),
+      // 五谷丰登共享选牌台（盖住整桌中央，所有玩家同步看到同一份牌池）
+      _buildWuGuStageLayer(),
       // 牌滑动层（摸牌 / 出牌 / 弃牌 / 装备）
       for (final f in _flying) _buildFlight(f),
       // 席位飘字层（掉血 -1 / 回复 +1 / 护甲 🛡，落在对应武将头上）

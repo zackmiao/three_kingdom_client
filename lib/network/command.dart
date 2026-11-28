@@ -59,6 +59,8 @@ enum Command {
     SHOW_JUDGE_RESULT,
     ASK_TARGET_ZONE,
     ASK_WU_GU,
+    // 五谷丰登共享选牌台：pickerId#pickerName#ASK|PICK|SKIP|END#items
+    WU_GU_POOL,
     // 手气卡：`剩余次数|idx#typeKey#suitKey#point#id#name#NONE;...`，回 RESPOND_CARD "1"/"0"
     ASK_LUCKY
 }
