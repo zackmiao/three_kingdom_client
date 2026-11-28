@@ -1,0 +1,114 @@
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+刘备#蜀#4#标准#;孙权#吴#4#标准#;谋周瑜#吴#3#谋攻篇-知包#
+
+===== HERO_CANDIDATES =====
+DRAW|周处#吴#4#标准#;谋曹丕#魏#3#谋攻篇-识包#;谋马超#蜀#4#谋攻篇-识包#
+
+===== ASK_LUCKY =====
+手气卡剩余 4 张|0#THUNDER_SHA#SPADE#6#34#雷杀#NONE;1#GUAN_SHI_FU#DIAMOND#5#112#贯石斧#NONE;2#ZHU_GE_LIAN_NU#CLUB#A#109#诸葛连弩#NONE;3#GUO_HE_CHAI_QIAO#SPADE#Q#66#过河拆桥#NONE
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|THUNDER_SHA|SPADE|6|雷杀|AI_1:谋张角
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|GUAN_SHI_FU|DIAMOND|5|贯石斧|
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|ZHU_GE_LIAN_NU|CLUB|A|诸葛连弩|
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|GUO_HE_CHAI_QIAO|SPADE|Q|过河拆桥|AI_1:谋张角
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|TAO_YUAN_JIE_YI|HEART|K|桃园结义|PROBE_1795822075073:谋曹丕,AI_1:谋张角
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|WU_GU_FENG_DENG|DIAMOND|4|五谷丰登|PROBE_1795822075073:谋曹丕,AI_1:谋张角
+
+===== ASK_WU_GU =====
+0=无懈可击【红桃A】|WU_XIE_KE_JI|HEART|A;1=杀【草花Q】|SHA|CLUB|Q
+
+===== CARD_PLAYED =====
+AI_1|谋张角|SHA|CLUB|Q|杀|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+AI_1|谋张角|HUO_GONG|HEART|5|火攻|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+AI_1|谋张角|HUO_GONG|HEART|2|火攻|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|FIRE_SHA|HEART|6|火杀|AI_1:谋张角
+
+===== CARD_PLAYED =====
+AI_1|谋张角|TAO|HEART|5|桃|AI_1:谋张角
+
+===== CARD_PLAYED =====
+AI_1|谋张角|SHA|SPADE|6|杀|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|TIE_SUO_LIAN_HUAN|SPADE|J|铁索连环|
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|TAO|HEART|4|桃|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|JIU|SPADE|3|酒|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+AI_1|谋张角|BAI_YIN_SHI_ZI|CLUB|J|白银狮子|
+
+===== CARD_PLAYED =====
+AI_1|谋张角|SHA|HEART|Q|杀|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+AI_1|谋张角|LE_BU_SI_SHU|CLUB|6|乐不思蜀|PROBE_1795822075073:谋曹丕
+
+===== SHOW_JUDGE_RESULT =====
+谋曹丕|乐不思蜀|铁索连环【方片J】|TIE_SUO_LIAN_HUAN|DIAMOND|J|非红桃 → 判定生效：[乐不思蜀] 跳过出牌阶段
+
+===== CARD_PLAYED =====
+AI_1|谋张角|DEFENSIVE_HORSE|SPADE|5|+1马|
+
+===== CARD_PLAYED =====
+AI_1|谋张角|WU_ZHONG_SHENG_YOU|HEART|7|无中生有|AI_1:谋张角
+
+===== CARD_PLAYED =====
+AI_1|谋张角|QING_GANG_JIAN|SPADE|6|青釭剑|
+
+===== CARD_PLAYED =====
+AI_1|谋张角|THUNDER_SHA|CLUB|5|雷杀|PROBE_1795822075073:谋曹丕
+
+===== CARD_PLAYED =====
+AI_1|谋张角|BING_LIANG_CUN_DUAN|SPADE|10|兵粮寸断|PROBE_1795822075073:谋曹丕
+
+===== SHOW_JUDGE_RESULT =====
+谋曹丕|兵粮寸断|杀【草花6】|SHA|CLUB|6|草花 → 判定失效：本回合正常摸牌
+
+===== CARD_PLAYED =====
+PROBE_1795822075073|谋曹丕|TIE_SUO_LIAN_HUAN|CLUB|3|铁索连环|
+
+===== CARD_PLAYED =====
+AI_1|谋张角|WU_ZHONG_SHENG_YOU|HEART|10|无中生有|AI_1:谋张角
+
+===== CARD_PLAYED =====
+AI_1|谋张角|SHA|DIAMOND|7|杀|PROBE_1795822075073:谋曹丕
+
+===== GAME_OVER =====
+🏆 反贼获胜（主公已阵亡）
