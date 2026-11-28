@@ -91,13 +91,15 @@ class _HandCardAreaState extends State<HandCardArea> {
     );
 
     if (!playable) {
+      // 不可用/不可选的牌：保留牌面可读性，只做「去色 + 轻微压暗」，
+      // 不再使用 0.34 的高透明度（用户反馈「暗着的牌太透明了」）。
       face = Opacity(
-        opacity: 0.34,
+        opacity: 0.86,
         child: ColorFiltered(
           colorFilter: const ColorFilter.matrix(<double>[
-            0.3, 0.3, 0.3, 0, 0, //
-            0.3, 0.3, 0.3, 0, 0, //
-            0.3, 0.3, 0.3, 0, 0, //
+            0.42, 0.42, 0.42, 0, 0, //
+            0.42, 0.42, 0.42, 0, 0, //
+            0.42, 0.42, 0.42, 0, 0, //
             0, 0, 0, 1, 0, //
           ]),
           child: face,

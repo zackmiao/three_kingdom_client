@@ -58,6 +58,9 @@ class TableSeatCard extends StatelessWidget {
   final String wuxieBadge;
   final String wuxieTrick;
 
+  /// 斗地主地主专属锁定技标签（如 ['飞扬','跋扈']），非地主传空。
+  final List<String> lordTags;
+
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Function(CardModel droppedCard, String targetId)? onCardDropped;
@@ -97,6 +100,7 @@ class TableSeatCard extends StatelessWidget {
     this.showTargetSword = false,
     this.wuxieBadge = '',
     this.wuxieTrick = '',
+    this.lordTags = const [],
     this.onTap,
     this.onLongPress,
     this.onCardDropped,
@@ -117,8 +121,10 @@ class TableSeatCard extends StatelessWidget {
         return const Color(0xFFFFC94D);
       case "LOYAL":
       case "COLD":
-      case "FARMER":
         return const Color(0xFF79C7FF);
+      case "FARMER":
+        // 斗地主：农民徽章用绿色（地主为金色）
+        return const Color(0xFF66D38A);
       case "REBEL":
         return const Color(0xFFFF6B6B);
       case "TRAITOR":
@@ -978,6 +984,18 @@ class TableSeatCard extends StatelessWidget {
                   top: showTargetSword ? -54 : -22,
                   child: _WuxieBadge(state: wuxieBadge, trick: wuxieTrick),
                 ),
+              // 斗地主：地主武将卡左侧挂「飞扬 / 跋扈」专属锁定技标签
+              if (lordTags.isNotEmpty)
+                Positioned(
+                  left: compact ? -4 : -6,
+                  top: compact ? 8 : 6,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final t in lordTags) _LordTag(text: t, scale: k),
+                    ],
+                  ),
+                ),
             ],
           ),
           SizedBox(
@@ -1166,6 +1184,45 @@ class _WuxieBadge extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 斗地主地主专属技能小标签（飞扬 / 跋扈），挂在武将卡左侧竖排。
+class _LordTag extends StatelessWidget {
+  const _LordTag({required this.text, this.scale = 1.0});
+
+  final String text;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 5 * scale),
+      padding: EdgeInsets.symmetric(horizontal: 5 * scale, vertical: 2 * scale),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFE082), Color(0xFFC9A227)],
+        ),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0xFF4A2E00), width: 0.7),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFC107).withValues(alpha: 0.5),
+            blurRadius: 6,
+            spreadRadius: 0.8,
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: const Color(0xFF3E2600),
+          fontSize: 9.5 * scale,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.2,
         ),
       ),
     );

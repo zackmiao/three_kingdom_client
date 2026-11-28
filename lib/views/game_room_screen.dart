@@ -2607,36 +2607,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
 
     final prev = List<WuGuSlot>.of(_wuguSlots);
-    final pendingTaken = List<List<String>>.of(takenTokens);
-    final pendingAvail = List<WuGuSlot>.of(avail);
+    // 服务端每次下发的 items 已经是「全部已拿走(t|) + 池内剩余(idx=)」的完整快照，
+    // 因此展台必须按本次下发**重建**：在上一轮结果上继续叠加会让旧格位残留、
+    // 同名牌被再追加一份，表现为「五谷丰登显示重复」。
     final next = <WuGuSlot>[];
-
-    // 先按上一轮的位置复用格子，保证「飞走 / 盖章」不会让其余牌跳位
-    for (final s in prev) {
-      if (s.taken) {
-        next.add(s.copyWith(clearIdx: true));
-        continue;
-      }
-      final ti = pendingTaken.indexWhere((t) =>
-          t[2] == s.desc && t[3] == s.typeKey && t[4] == s.suitKey && t[5] == s.point);
-      if (ti >= 0) {
-        final t = pendingTaken.removeAt(ti);
-        next.add(s.copyWith(owner: t[1], clearIdx: true));
-        continue;
-      }
-      final ai = pendingAvail.indexWhere((a) => a.signature == s.signature);
-      if (ai >= 0) {
-        final a = pendingAvail.removeAt(ai);
-        next.add(s.copyWith(idx: a.idx));
-        continue;
-      }
-      // 既不在池里、也没有 token（理论上不会发生）——按已选处理，避免残留可点
-      next.add(s.copyWith(owner: '已选', clearIdx: true));
-    }
-    for (final a in pendingAvail) {
-      next.add(a);
-    }
-    for (final t in pendingTaken) {
+    for (final t in takenTokens) {
       next.add(WuGuSlot(
         desc: t[2],
         typeKey: t[3],
@@ -2645,11 +2620,23 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         owner: t[1],
       ));
     }
-    // 牌池里可能有完全相同的两张牌，逐格分配唯一 keyId，避免 Key 冲突
+    next.addAll(avail);
+
+    // 同名牌可能有多张：按「指纹 + 第几次出现」复用上一轮的 keyId，
+    // 既保证 Key 唯一，又让牌不会因为重建而换位（飞牌起点仍然正确）。
+    final Map<String, List<String>> prevKeysBySig = <String, List<String>>{};
+    for (final s in prev) {
+      prevKeysBySig.putIfAbsent(s.signature, () => <String>[]).add(s.keyId);
+    }
+    final Map<String, int> sigOccur = <String, int>{};
     for (var i = 0; i < next.length; i++) {
-      if (next[i].keyId.isEmpty) {
-        next[i] = next[i].copyWith(keyId: 'wugu-${_wuguSlotSeq++}');
-      }
+      final sig = next[i].signature;
+      final n = sigOccur[sig] = (sigOccur[sig] ?? -1) + 1;
+      final reused = prevKeysBySig[sig];
+      final key = (reused != null && n < reused.length && reused[n].isNotEmpty)
+          ? reused[n]
+          : 'wugu-${_wuguSlotSeq++}';
+      next[i] = next[i].copyWith(keyId: key);
     }
     for (final s in next) {
       _wuguSlotKeys.putIfAbsent(s.uniqueKey, () => GlobalKey());
@@ -3451,6 +3438,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           isWaitingResponse: _waitingSeatId == o.id,
           wuxieBadge: _wuxieTargetId == o.id ? _wuxieBadgeState : '',
           wuxieTrick: _wuxieTrickName,
+          lordTags: _gameMode == 'LANDLORD' && o.role == 'LORD'
+              ? const ['飞扬', '跋扈']
+              : const [],
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -4242,6 +4232,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         wuxieBadge:
                             _wuxieTargetId == widget.playerId ? _wuxieBadgeState : '',
                         wuxieTrick: _wuxieTrickName,
+                        lordTags: _gameMode == 'LANDLORD' && _myRole == 'LORD'
+                            ? const ['飞扬', '跋扈']
+                            : const [],
                         name: widget.playerName,
                         hero: _heroName,
                         hp: _hp,
