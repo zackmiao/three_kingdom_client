@@ -338,3 +338,11 @@ lib/
 | 全卡牌目标校验 `canTargetPlayer` | 新增 `targetBlockReason(typeKey, TargetContext, attackRange, wuShengLocked)`：杀类（排除自己 + 距离）、决斗、过河拆桥、顺手牵羊（距离 1 + 三区非空）、乐不思蜀 / 兵粮寸断（判定区已有同名延时锦囊）、火攻（有手牌，含自己）、铁索连环（含自己、最多 2 名） | `lib/models/target_rules.dart` |
 | 跳动宝剑 | 选中需要指定目标的牌后，所有合法目标席位上方浮现赤金宝剑（上下 ±6px 往复 + 金色光晕），不可选目标压暗且不显示；点击时给出具体拦截原因 | `table_seat_card.dart._JumpingSword`、`game_room_screen` 的 `seatWidget` / 主视角席位 |
 | 弃牌阶段滑动多选 | 弃牌阶段按住手牌横向滑动即可连续勾选（滑过哪张选哪张），替代一张张点 | `hand_card_area.dart._withSlideSelect` |
+## 本轮：无懈状态角标 / 弃牌阶段交互
+
+| 项目 | 实现 | 位置 |
+| --- | --- | --- |
+| 无懈可击状态角标 | 解析新协议 `WUXIE_STATUS`（`targetId\|targetName\|trickName\|state`）：被询问的目标席位正上方显示绿色「即将生效·锦囊」（提示敌方可用无懈）或红色「即将失效·锦囊」（提示友方反无懈），收到 `DONE` 自动清除 | `lib/views/components/table_seat_card.dart` 的 `_WuxieBadge`、`game_room_screen._handleWuxieStatus` |
+| 弃牌阶段精确张数 | 从服务端提示里解析「请弃置 X 张」，底部提示栏实时显示「已选 Y / X 张」；未选满 X 张时【确定 (Y/X)】按钮置灰不可点，选多也不能提交 | `lib/views/components/action_prompt_bar.dart` 的 `exactCount`、`game_room_screen._displayPrompt` |
+| 不可跳过 | 弃牌阶段隐藏「结束出牌 / 放弃」按钮，必须选满张数；客户端仍会二次校验，服务端也会打回重选 | `ActionPromptBar`、`_onConfirmAction` |
+| 手牌全亮 + 滑动多选 | 弃牌阶段所有手牌保持可选（不置灰），支持按住横向滑动连续勾选 / 再滑一次取消 | `_isCardPlayableNow`、`HandCardArea.onSlideSelect` |

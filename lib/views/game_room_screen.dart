@@ -200,6 +200,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   bool _isConfirmAsk = false;
   bool _isResponding = false;
   bool _isDiscardPhase = false;
+
+  /// 弃牌阶段「需要弃置的精确张数」（服务端下发 `请弃置 X 张手牌`）
+  int? _discardRequired;
   bool _isDead = false;
 
   int _secondsLeft = 0;
@@ -236,6 +239,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 当前正在等待谁响应（WAITING_RESPONSE），该席位显示呼吸脉冲边框
   String? _waitingSeatId;
   Timer? _waitingTimer;
+
+  /// 【无懈可击】询问中的目标席位与生效状态：'' / ACTIVE（即将生效）/ NEGATED（即将失效）
+  String? _wuxieTargetId;
+  String _wuxieBadgeState = '';
+  String _wuxieTrickName = '';
 
   /// 刚发过「牌被拿走 / 被弃置」明牌动画的席位，短时间内屏蔽手牌数量变化触发的冗余飞牌
   final Map<String, DateTime> _suppressFlowUntil = <String, DateTime>{};
@@ -319,6 +327,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       case Command.WAITING_RESPONSE:
         _handleWaitingResponse(packet.data);
         break;
+      case Command.WUXIE_STATUS:
+        _handleWuxieStatus(packet.data);
+        break;
       case Command.CARD_TRANSFER:
         _handleCardTransfer(packet.data);
         break;
@@ -342,6 +353,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           _isResponding = false;
           _isConfirmAsk = false;
           _isDiscardPhase = packet.data.contains("弃牌阶段");
+          if (_isDiscardPhase) {
+            final m = RegExp(r'请弃置\s*(\d+)\s*张').firstMatch(packet.data);
+            _discardRequired = m == null ? null : int.tryParse(m.group(1)!);
+          } else {
+            _discardRequired = null;
+          }
           _askPrompt = packet.data;
           _selectedIndices.clear();
           _selectedTargetIds.clear();
@@ -359,6 +376,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         setState(() {
           _isResponding = true;
           _isDiscardPhase = false;
+          _discardRequired = null;
           _askPrompt = packet.data;
           // 「0 = 放弃，1 = 发动」这类被动技能询问：走底部【发动】/【放弃】按钮
           _isConfirmAsk = RegExp(r'0\s*=\s*放弃').hasMatch(packet.data);
@@ -1739,6 +1757,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
   }
 
+  /// 底部提示栏要显示的文案：弃牌阶段动态显示「已选 Y / X 张」。
+  String get _displayPrompt {
+    if (_isDiscardPhase && _discardRequired != null) {
+      return '【弃牌阶段】你的手牌超过上限，请弃置 $_discardRequired 张手牌（已选 ${_selectedIndices.length} / $_discardRequired 张）';
+    }
+    return _askPrompt ?? '';
+  }
+
   bool _isCardRequiringTarget(CardModel card) => cardNeedsTarget(card.typeKey);
 
   /// 当前选中的手牌类型（用于全卡牌目标合法性判定）
@@ -1901,10 +1927,25 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       return;
     }
 
-    if (_selectedIndices.isEmpty) return;
     final list = _selectedIndices.toList()..sort();
 
-    if (_isDiscardPhase || (_askPrompt != null && _askPrompt!.contains("贯石斧"))) {
+    if (_isDiscardPhase) {
+      final need = _discardRequired;
+      if (need != null && list.length != need) {
+        _showToast('【弃牌阶段】需弃置 $need 张手牌，当前已选 ${list.length} 张');
+        return;
+      }
+      if (list.isEmpty) {
+        _showToast('【弃牌阶段】请先勾选要弃置的手牌');
+        return;
+      }
+      _sendResponse(list.join(','));
+      return;
+    }
+
+    if (_selectedIndices.isEmpty) return;
+
+    if (_askPrompt != null && _askPrompt!.contains("贯石斧")) {
       _sendResponse(list.join(','));
       return;
     }
@@ -3038,6 +3079,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _huoGongDiscardSuit = null;
       _huoGongShown = null;
       _huoGongExposeMine = false;
+      _isDiscardPhase = false;
+      _discardRequired = null;
     });
   }
 
@@ -3406,6 +3449,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           isHitFlash: _hitSeats.contains(o.id),
           isDying: o.alive && o.hp <= 0,
           isWaitingResponse: _waitingSeatId == o.id,
+          wuxieBadge: _wuxieTargetId == o.id ? _wuxieBadgeState : '',
+          wuxieTrick: _wuxieTrickName,
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -3642,6 +3687,28 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     });
   }
 
+  /// `targetId|targetName|trickName|state`：state = ACTIVE / NEGATED / DONE
+  void _handleWuxieStatus(String data) {
+    final parts = data.split('|');
+    if (parts.length < 3) return;
+    final targetId = parts[0].trim();
+    final trick = parts[2].trim();
+    final state = (parts.length > 3 ? parts[3] : 'DONE').trim().toUpperCase();
+
+    if (!mounted) return;
+    setState(() {
+      if (state == 'DONE' || state.isEmpty) {
+        _wuxieTargetId = null;
+        _wuxieBadgeState = '';
+        _wuxieTrickName = '';
+      } else {
+        _wuxieTargetId = targetId.isEmpty ? null : targetId;
+        _wuxieBadgeState = state == 'NEGATED' ? 'NEGATED' : 'ACTIVE';
+        _wuxieTrickName = trick;
+      }
+    });
+  }
+
   /// 响应牌微缩卡片：叠压在中央主牌右下角，不挤占主卡槽。
   Widget _buildResponseCard(PlayedCard card) {
     return IgnorePointer(
@@ -3728,7 +3795,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         children: [
           if (_askPrompt != null)
             ActionPromptBar(
-              prompt: _askPrompt!,
+              prompt: _displayPrompt,
+              exactCount: _isDiscardPhase ? _discardRequired : null,
               isResponding: _isResponding,
               selectedCount: _selectedIndices.length,
               isZhangBaMode: _isZhangBaMode,
@@ -4171,6 +4239,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         isHitFlash: _hitSeats.contains(widget.playerId),
                         isDying: _hp <= 0,
                         isWaitingResponse: _waitingSeatId == widget.playerId,
+                        wuxieBadge:
+                            _wuxieTargetId == widget.playerId ? _wuxieBadgeState : '',
+                        wuxieTrick: _wuxieTrickName,
                         name: widget.playerName,
                         hero: _heroName,
                         hp: _hp,

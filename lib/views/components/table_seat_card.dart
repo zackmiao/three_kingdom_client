@@ -54,6 +54,10 @@ class TableSeatCard extends StatelessWidget {
   /// 玩家选中一张需要指定目标的牌时：该角色是合法目标 → 头顶显示「跳动宝剑」提示
   final bool showTargetSword;
 
+  /// 【无懈可击】询问状态：'' = 无；'ACTIVE' = 即将生效；'NEGATED' = 即将失效
+  final String wuxieBadge;
+  final String wuxieTrick;
+
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Function(CardModel droppedCard, String targetId)? onCardDropped;
@@ -91,6 +95,8 @@ class TableSeatCard extends StatelessWidget {
     this.faction = "",
     this.exileCount = 0,
     this.showTargetSword = false,
+    this.wuxieBadge = '',
+    this.wuxieTrick = '',
     this.onTap,
     this.onLongPress,
     this.onCardDropped,
@@ -966,6 +972,12 @@ class TableSeatCard extends StatelessWidget {
                   top: -16,
                   child: _JumpingSword(size: compact ? 34 : 28),
                 ),
+              // 【无懈可击】询问中的生效状态角标（绿=即将生效 / 红=即将失效）
+              if (wuxieBadge.isNotEmpty)
+                Positioned(
+                  top: showTargetSword ? -54 : -22,
+                  child: _WuxieBadge(state: wuxieBadge, trick: wuxieTrick),
+                ),
             ],
           ),
           SizedBox(
@@ -1105,6 +1117,56 @@ class _JumpingSwordState extends State<_JumpingSword>
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// 【无懈可击】询问中的席位状态角标：
+/// ACTIVE = 绿色「即将生效」（提示敌方可用无懈抵消）
+/// NEGATED = 红色「即将失效」（提示友方可用无懈救回）
+class _WuxieBadge extends StatelessWidget {
+  const _WuxieBadge({required this.state, required this.trick});
+
+  final String state;
+  final String trick;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool active = state == 'ACTIVE';
+    final Color main = active ? const Color(0xFF2E7D32) : const Color(0xFFC62828);
+    final Color light = active ? const Color(0xFF66BB6A) : const Color(0xFFEF5350);
+    final String label = active ? '即将生效' : '即将失效';
+    final String suffix = trick.isEmpty ? '' : '·$trick';
+
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [light, main]),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.72), width: 1.1),
+          boxShadow: [
+            BoxShadow(color: main.withValues(alpha: 0.65), blurRadius: 12, spreadRadius: 1.5),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(active ? Icons.check_circle : Icons.cancel,
+                size: 12, color: Colors.white),
+            const SizedBox(width: 3),
+            Text(
+              '$label$suffix',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

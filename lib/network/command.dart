@@ -60,6 +60,9 @@ enum Command {
 
   /// 服务端等待某玩家响应（出闪/杀/无懈）：data = 玩家ID，空串表示清空。
   WAITING_RESPONSE,
+
+  /// 【无懈可击】链式询问的生效状态角标：`targetId|targetName|trickName|ACTIVE|NEGATED|DONE`
+  WUXIE_STATUS,
     ASK_ACTION,
     ASK_RESPONSE,
     RESPOND_CARD,
