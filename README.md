@@ -318,3 +318,13 @@ lib/
 | 桃园满血跳过 | 解析「满血跳过」，在对应席位飘灰白「满血跳过」 |
 | 判定生效提示 | `_handleJudgeSeatHint`：乐不思蜀生效 → 红色「❌ 跳过出牌」，兵粮寸断生效 → 红色「❌ 跳过摸牌」，八卦阵红判 → 青色「🔮 八卦抵消」 |
 | 目标合法性预校验 | 选牌后点对手席位：过河拆桥/顺手牵羊对「三个区域全空」的目标直接拦截并提示；火攻对无手牌目标拦截；自己的席位在【铁索连环】/【火攻】下可作为目标被点击（铁索最多 2 人） |
+
+## 本轮：房间设置、不限时与两处 Flutter 异常修复
+
+| 项目 | 实现 | 位置 |
+| --- | --- | --- |
+| 房间设置入口 | 房主在房间页底部「响应时间：- 25s +」调节（每次 ±5 秒，5~600），标题栏也对所有人显示当前响应时间；`ROOM_SYNC` 第 8 段解析 | `room_screen.dart`（`_bumpResponseSeconds` / `_stepChip`） |
+| 测试模式不限时 | 收到 `TIMEOUT:0` 时 `_startCountdown` 直接返回：不倒计时、不自动收起操作栏，测试局可以慢慢思考 | `game_room_screen.dart` |
+| 修复 ListTile 材质断言 | 房间列表 `ListView.separated` 外层补 `Material(type: MaterialType.transparency)`，解决「ListTile requires a Material widget ancestor」 | `lobby_screen.dart` |
+| 修复 Duplicate keys | `WuGuSlot` 新增唯一 `keyId`/`uniqueKey`（牌池可能有同描述同花色的两张牌），展台格位按 `uniqueKey` 生成 `GlobalKey` 与 `ValueKey`；手牌 `Positioned` 补 `ValueKey('hand-<cardId>-<位置>')` | `wugu_stage.dart`、`game_room_screen.dart`、`hand_card_area.dart` |
+| 回归测试 | 新增「两张完全相同的牌不触发 Duplicate keys」与「房间设置第 8 段显示与调节」两条 widget 测试（共 41 条） | `test/wugu_stage_test.dart`、`test/room_screen_mode_chips_test.dart` |

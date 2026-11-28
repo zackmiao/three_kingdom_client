@@ -411,39 +411,44 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 else
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 168),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: _rooms.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1, color: Colors.white12),
-                      itemBuilder: (_, i) {
-                        final r = _rooms[i];
-                        return ListTile(
-                          dense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                          leading: Icon(
-                            r.state == 'PLAYING' ? Icons.play_circle : Icons.meeting_room,
-                            color: r.state == 'PLAYING' ? Colors.orangeAccent : Colors.amberAccent,
-                            size: 18,
-                          ),
-                          title: Text(r.name,
-                              style: const TextStyle(color: Colors.white, fontSize: 13)),
-                          subtitle: Text('${r.id} · ${r.modeLabel} · ${r.players}/${r.maxPlayers} 人'
-                              '${r.state == 'PLAYING' ? ' · 对局中' : ''}',
-                              style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                          trailing: r.state == 'PLAYING' || r.players >= r.maxPlayers
-                              ? const Text('不可加入',
-                                  style: TextStyle(color: Colors.white24, fontSize: 11))
-                              : TextButton(
-                                  onPressed: () => _joinRoom(r.id),
-                                  child: const Text('加入',
-                                      style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
-                                ),
-                          onTap: r.state == 'PLAYING' || r.players >= r.maxPlayers
-                              ? null
-                              : () => _joinRoom(r.id),
-                        );
-                      },
+                    // 弹窗外层是带背景色的 Container，没有 Material 祖先；
+                    // ListTile 需要 Material，这里补一层透明 Material。
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: _rooms.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1, color: Colors.white12),
+                        itemBuilder: (_, i) {
+                          final r = _rooms[i];
+                          return ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                            leading: Icon(
+                              r.state == 'PLAYING' ? Icons.play_circle : Icons.meeting_room,
+                              color: r.state == 'PLAYING' ? Colors.orangeAccent : Colors.amberAccent,
+                              size: 18,
+                            ),
+                            title: Text(r.name,
+                                style: const TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: Text('${r.id} · ${r.modeLabel} · ${r.players}/${r.maxPlayers} 人'
+                                '${r.state == 'PLAYING' ? ' · 对局中' : ''}',
+                                style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                            trailing: r.state == 'PLAYING' || r.players >= r.maxPlayers
+                                ? const Text('不可加入',
+                                    style: TextStyle(color: Colors.white24, fontSize: 11))
+                                : TextButton(
+                                    onPressed: () => _joinRoom(r.id),
+                                    child: const Text('加入',
+                                        style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+                                  ),
+                            onTap: r.state == 'PLAYING' || r.players >= r.maxPlayers
+                                ? null
+                                : () => _joinRoom(r.id),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 if (_status.isNotEmpty)

@@ -51,4 +51,27 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('测试模式'), findsWidgets);
   });
+
+  testWidgets('房间设置第 8 段（响应时间）会显示在标题与房主调节区', (tester) async {
+    const roomRawWithSetting =
+        'ROOM_889|设置房|4|p1|WAITING|p1#甲#false#刘备#true|IDENTITY|45';
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: RoomScreen(
+          playerId: 'p1',
+          playerName: '甲',
+          initialRoomRaw: roomRawWithSetting,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    // 房主：标题栏与调节区都显示 45s，并且有 ± 按钮
+    expect(find.textContaining('响应45s'), findsWidgets);
+    expect(find.text('响应时间：'), findsOneWidget);
+    expect(find.text('45s'), findsWidgets);
+    expect(find.text('-'), findsOneWidget);
+    expect(find.text('+'), findsOneWidget);
+  });
 }

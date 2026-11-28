@@ -212,6 +212,8 @@ class _HandCardAreaState extends State<HandCardArea> {
             children: [
               for (final i in order)
                 Positioned(
+                  // 牌堆里可能有同名同花色的牌，Key 必须用「卡牌实例ID + 位置」保证唯一
+                  key: ValueKey('hand-${cards[i].index}-$i'),
                   left: i * step + (math.max(totalW, avail) - totalW) / 2,
                   bottom: 0,
                   child: _FanCard(

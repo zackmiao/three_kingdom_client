@@ -37,6 +37,9 @@ class _RoomScreenState extends State<RoomScreen> {
   String _hostId = "";
   String _state = "WAITING";
   String _mode = "IDENTITY";
+
+  /// 房主设置的「出牌/响应思考时间」（秒）；0 = 不限时（测试模式）。
+  int _responseSeconds = 25;
   List<RoomMemberModel> _members = [];
   final ValueNotifier<List<HeroModel>> _candidates = ValueNotifier<List<HeroModel>>(const []);
   final Set<String> _avatarRequested = <String>{};
@@ -158,6 +161,10 @@ class _RoomScreenState extends State<RoomScreen> {
     if (parts.length > 6 && parts[6].trim().isNotEmpty) {
       _mode = parts[6].trim();
     }
+    // 第 8 段：房主设置的「出牌/响应思考时间」（秒），0 表示不限时（测试模式）
+    if (parts.length > 7 && parts[7].trim().isNotEmpty) {
+      _responseSeconds = int.tryParse(parts[7].trim()) ?? _responseSeconds;
+    }
 
     final memRaw = parts.length > 5 ? parts[5].trim() : "";
     _members = memRaw.isEmpty
@@ -172,6 +179,36 @@ class _RoomScreenState extends State<RoomScreen> {
   void _setMode(String modeKey) {
     _socket.sendPacket(
         Packet(command: Command.SET_MODE, senderId: widget.playerId, data: modeKey));
+  }
+
+  /// 房主调整「响应时间」（每次 ±5 秒，服务端限制 5~600 秒）
+  void _bumpResponseSeconds(int delta) {
+    final next = (_responseSeconds + delta).clamp(5, 600);
+    if (next == _responseSeconds) return;
+    _socket.sendPacket(Packet(
+        command: Command.SET_ROOM_SETTING,
+        senderId: widget.playerId,
+        data: '$next'));
+  }
+
+  Widget _stepChip(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        width: 26,
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0x22FFFFFF),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0x44FFD9A0)),
+        ),
+        child: Text(label,
+            style: const TextStyle(
+                color: Color(0xFFFFE0B2), fontSize: 14, fontWeight: FontWeight.bold)),
+      ),
+    );
   }
 
   void _leaveRoom() {
@@ -199,7 +236,9 @@ class _RoomScreenState extends State<RoomScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF181920),
       appBar: AppBar(
-        title: Text('$_roomName ($_roomId)  [$_modeLabel · ${_members.length}/$_maxPlayers 人]'),
+        title: Text(
+            '$_roomName ($_roomId)  [$_modeLabel · ${_members.length}/$_maxPlayers 人 · '
+            '响应${_responseSeconds <= 0 ? '不限时' : '${_responseSeconds}s'}]'),
         backgroundColor: const Color(0xFF24252E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.redAccent),
@@ -372,6 +411,21 @@ class _RoomScreenState extends State<RoomScreen> {
                                 onTap: () => _setMode(entry.key),
                               ),
                             ),
+                          const SizedBox(width: 6),
+                          const Text('响应时间：',
+                              style: TextStyle(color: Colors.white38, fontSize: 12)),
+                          _stepChip('-', () => _bumpResponseSeconds(-5)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 7),
+                            child: Text(
+                              _responseSeconds <= 0 ? '不限时' : '${_responseSeconds}s',
+                              style: const TextStyle(
+                                  color: Color(0xFFFFD9A0),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          _stepChip('+', () => _bumpResponseSeconds(5)),
                         ],
                       ),
                     ),

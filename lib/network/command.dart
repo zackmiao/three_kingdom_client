@@ -36,6 +36,9 @@ enum Command {
   TEST_POSSESS,
     // 房间玩法模式：IDENTITY / TEAM_2V2 / LANDLORD
     SET_MODE,
+
+  /// 房间设置：房主自定义出牌/响应思考时间（秒）
+  SET_ROOM_SETTING,
     // 抽将候选：`;` 分隔的武将序列化串（最多 3 名）
     HERO_CANDIDATES,
     // 重新抽取候选武将

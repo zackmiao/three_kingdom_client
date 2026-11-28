@@ -152,6 +152,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// ===== 【五谷丰登】全员共享选牌台 =====
   List<WuGuSlot> _wuguSlots = const [];
   final Map<String, GlobalKey> _wuguSlotKeys = <String, GlobalKey>{};
+
+  /// 展台格位唯一键序号：牌池里可能有完全相同的牌，Key 必须逐格唯一。
+  int _wuguSlotSeq = 0;
   String _wuguPickerId = '';
   String _wuguPickerName = '';
   String _wuguPhase = ''; // ASK / PICK / SKIP / END
@@ -899,6 +902,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   }
 
   void _startCountdown() {
+    // 测试模式：服务端下发 TIMEOUT:0，表示完全不限时。倒计时与自动收起都不启动。
+    if (_timeoutSeconds <= 0) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+      setState(() {
+        _countdownTotal = 0;
+        _secondsLeft = 0;
+      });
+      return;
+    }
     // 无懈可击是并发询问，服务端只等 5 秒，倒计时要与之一致
     final total = (_askPrompt != null && _askPrompt!.contains("无懈可击")) ? 5 : _timeoutSeconds;
     setState(() {
@@ -2533,8 +2546,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         owner: t[1],
       ));
     }
+    // 牌池里可能有完全相同的两张牌，逐格分配唯一 keyId，避免 Key 冲突
+    for (var i = 0; i < next.length; i++) {
+      if (next[i].keyId.isEmpty) {
+        next[i] = next[i].copyWith(keyId: 'wugu-${_wuguSlotSeq++}');
+      }
+    }
     for (final s in next) {
-      _wuguSlotKeys.putIfAbsent(s.signature, () => GlobalKey());
+      _wuguSlotKeys.putIfAbsent(s.uniqueKey, () => GlobalKey());
     }
 
     // 找出这一轮刚被拿走的牌 → 播飞牌 + 席位飘字
@@ -2587,7 +2606,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   void _flyWuGuPick(WuGuSlot slot, String ownerName) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final from = _stageCenterOf(_wuguSlotKeys[slot.signature] ?? _centerKey) ??
+      final from = _stageCenterOf(_wuguSlotKeys[slot.uniqueKey] ?? _centerKey) ??
           _stageCenterOf(_centerKey);
       final ownerId = _findPlayerIdByName(ownerName);
       final seatKey = ownerId == null ? null : _seatKeys[ownerId];

@@ -15,6 +15,10 @@ class WuGuSlot {
   final String point;
   final String? owner;
 
+  /// 展台格位的全局唯一键。牌池里可能存在两张完全相同的牌
+  /// （同描述、同花色、同点数），因此不能只用 [signature] 当 Key。
+  final String keyId;
+
   const WuGuSlot({
     this.idx,
     required this.desc,
@@ -22,14 +26,18 @@ class WuGuSlot {
     required this.suitKey,
     required this.point,
     this.owner,
+    this.keyId = '',
   });
 
   bool get taken => owner != null;
 
-  /// 同一张牌的稳定指纹：用于在多轮下发之间把「被拿走的牌」对上原来那一格。
+  /// 同一张牌的指纹：用于在多轮下发之间把「被拿走的牌」对上原来那一格。
   String get signature => '$desc|$typeKey|$suitKey|$point';
 
-  WuGuSlot copyWith({int? idx, String? owner, bool clearIdx = false}) {
+  /// Key 用的唯一标识（父级分配的 [keyId] 优先，缺省退回指纹）。
+  String get uniqueKey => keyId.isNotEmpty ? keyId : signature;
+
+  WuGuSlot copyWith({int? idx, String? owner, bool clearIdx = false, String? keyId}) {
     return WuGuSlot(
       idx: clearIdx ? null : (idx ?? this.idx),
       desc: desc,
@@ -37,6 +45,7 @@ class WuGuSlot {
       suitKey: suitKey,
       point: point,
       owner: owner ?? this.owner,
+      keyId: keyId ?? this.keyId,
     );
   }
 
@@ -174,7 +183,7 @@ class WuGuStage extends StatelessWidget {
   }
 
   Widget _slotView(WuGuSlot slot) {
-    final key = slotKeys[slot.signature] ?? GlobalKey();
+    final key = slotKeys[slot.uniqueKey] ?? GlobalKey();
     final clickable = canPick && !slot.taken;
     final card = SizedBox(
       width: 96,
@@ -193,7 +202,7 @@ class WuGuStage extends StatelessWidget {
     return KeyedSubtree(
       key: key,
       child: GestureDetector(
-        key: ValueKey('wugu-slot-${slot.signature}'),
+        key: ValueKey('wugu-slot-${slot.uniqueKey}'),
         onTap: clickable ? () => onPick?.call(slot) : null,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 220),

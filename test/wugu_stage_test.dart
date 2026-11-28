@@ -70,4 +70,34 @@ void main() {
     await tester.pump();
     expect(picked, isEmpty);
   });
+
+  testWidgets('牌池里有两张完全相同的牌时不会触发 Duplicate keys', (tester) async {
+    // 同描述、同花色、同点数的两张牌：签名相同，必须靠唯一 keyId 区分
+    const dupes = [
+      WuGuSlot(idx: 0, desc: '杀', typeKey: 'SHA', suitKey: 'SPADE', point: '7', keyId: 'wugu-0'),
+      WuGuSlot(idx: 1, desc: '杀', typeKey: 'SHA', suitKey: 'SPADE', point: '7', keyId: 'wugu-1'),
+    ];
+    final picked = <WuGuSlot>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: WuGuStage(
+            slots: dupes,
+            statusText: '轮到你了！请点击选择一张牌',
+            canPick: true,
+            slotKeys: const {},
+            onPick: picked.add,
+          ),
+        ),
+      ),
+    ));
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('wugu-slot-wugu-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wugu-slot-wugu-1')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('wugu-slot-wugu-1')));
+    await tester.pump();
+    expect(picked.length, 1);
+    expect(picked.first.idx, 1);
+  });
 }
