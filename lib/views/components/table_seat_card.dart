@@ -32,6 +32,10 @@ class TableSeatCard extends StatelessWidget {
 
   /// 濒死求桃中（头像压灰 + 红字警示）
   final bool isDying;
+
+  /// 正在等待该角色响应（出闪/出杀/无懈）：呼吸脉冲边框 + 「思考响应中…」气泡
+  final bool isWaitingResponse;
+
   final String role;
   final String roleLabel;
   final bool alive;
@@ -71,6 +75,7 @@ class TableSeatCard extends StatelessWidget {
     this.isOutOfRange = false,
     this.isHitFlash = false,
     this.isDying = false,
+    this.isWaitingResponse = false,
     this.role = "HIDDEN",
     this.roleLabel = "？",
     this.alive = true,
@@ -549,20 +554,29 @@ class TableSeatCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(9),
               border: Border.all(
-                color: isHitFlash
-                    ? const Color(0xFFFF1744)
-                    : (isOutOfRange
-                        ? const Color(0x55FFFFFF)
-                        : (highlight
-                            ? const Color(0xFFFF5252)
-                            : (isCurrentTurn
-                                ? const Color(0xFFFFC94D)
-                                : (drunk
-                                    ? const Color(0xFFFF4D4D)
-                                    : const Color(0x66FFD9A0))))),
-                width: isHitFlash ? 3.2 : (highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2)),
+                color: isWaitingResponse
+                    ? const Color(0xFF4DD0E1)
+                    : (isHitFlash
+                        ? const Color(0xFFFF1744)
+                        : (isOutOfRange
+                            ? const Color(0x55FFFFFF)
+                            : (highlight
+                                ? const Color(0xFFFF5252)
+                                : (isCurrentTurn
+                                    ? const Color(0xFFFFC94D)
+                                    : (drunk
+                                        ? const Color(0xFFFF4D4D)
+                                        : const Color(0x66FFD9A0)))))),
+                width: isWaitingResponse
+                    ? 2.6
+                    : (isHitFlash
+                        ? 3.2
+                        : (highlight ? 3 : ((isCurrentTurn || drunk) ? 2.5 : 1.2))),
               ),
               boxShadow: [
+                if (isWaitingResponse)
+                  const BoxShadow(
+                      color: Color(0xAA4DD0E1), blurRadius: 20, spreadRadius: 3),
                 if (isHitFlash)
                   const BoxShadow(
                       color: Color(0xCCFF1744), blurRadius: 26, spreadRadius: 4),
@@ -584,6 +598,34 @@ class TableSeatCard extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             child: Stack(
               children: [
+                if (isWaitingResponse)
+                  const Positioned.fill(child: _WaitingPulse(radius: 9)),
+                if (isWaitingResponse)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 2 * k,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 5 * k, vertical: 1.5 * k),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                                colors: [Color(0xFF006064), Color(0xFF26C6DA)]),
+                            borderRadius: BorderRadius.circular(8 * k),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0xAA26C6DA), blurRadius: 8),
+                            ],
+                          ),
+                          child: Text('思考响应中…',
+                              style: TextStyle(
+                                  fontSize: 8.6 * k,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white)),
+                        ),
+                      ),
+                    ),
+                  ),
                 Row(
                   children: [
                     _strip(k),
@@ -933,6 +975,58 @@ class TableSeatCard extends StatelessWidget {
                 : const SizedBox.shrink(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 「思考响应中…」呼吸脉冲边框（等待该角色出闪/出杀/出无懈时使用）
+class _WaitingPulse extends StatefulWidget {
+  const _WaitingPulse({required this.radius});
+
+  final double radius;
+
+  @override
+  State<_WaitingPulse> createState() => _WaitingPulseState();
+}
+
+class _WaitingPulseState extends State<_WaitingPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final v = _c.value;
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(widget.radius),
+              border: Border.all(
+                color: const Color(0xFF4DD0E1).withValues(alpha: 0.35 + 0.55 * v),
+                width: 2.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF26C6DA).withValues(alpha: 0.20 + 0.45 * v),
+                  blurRadius: 10 + 16 * v,
+                  spreadRadius: 1 + 2 * v,
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

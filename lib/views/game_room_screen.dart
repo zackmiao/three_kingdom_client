@@ -221,6 +221,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   DateTime _lastCardPlayedAt = DateTime.fromMillisecondsSinceEpoch(0);
   PlayedCard? _lastTextPlayed;
   DateTime _lastTextPlayedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  /// 当前正在等待谁响应（WAITING_RESPONSE），该席位显示呼吸脉冲边框
+  String? _waitingSeatId;
+  Timer? _waitingTimer;
+  /// 响应阶段打出的牌（【闪】/【无懈可击】/决斗续【杀】），以微缩卡片叠压在中央主牌右下角
+  PlayedCard? _responseCard;
 
   @override
   void initState() {
@@ -234,6 +239,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     _cardDisplayTimer?.cancel();
     _countdownTimer?.cancel();
     _wuguCloseTimer?.cancel();
+    _waitingTimer?.cancel();
     super.dispose();
   }
 
@@ -293,6 +299,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         break;
       case Command.CARD_PLAYED:
         _handleCardPlayed(packet.data);
+        break;
+      case Command.WAITING_RESPONSE:
+        _handleWaitingResponse(packet.data);
         break;
       case Command.CARD_FLOW:
         _handleCardFlow(packet.data);
@@ -495,6 +504,18 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
     final resolvedTypeKey =
         typeKeyRaw.isEmpty ? (CardCatalog.typeKeyOfName(cardName) ?? '') : typeKeyRaw;
+
+    // 响应阶段打出的牌（服务端 isResponse 标记）：只做「主牌右下角微缩叠压」，不进主卡槽
+    final isResponse = parts.length > 7 && parts[7].trim() == '1';
+    if (isResponse) {
+      AudioService.instance.playCard(cardName);
+      setState(() => _responseCard = played);
+      Timer(const Duration(milliseconds: 1800), () {
+        if (!mounted) return;
+        setState(() => _responseCard = null);
+      });
+      return;
+    }
     final nature = _natureOf(resolvedTypeKey);
     final gen = ++_cardGen;
     setState(() {
@@ -1770,6 +1791,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
     if (_isZhiHengMode) {
       _sendResponse('ZHIHENG:${list.join(",")}');
+      return;
+    }
+    // 响应阶段（【南蛮入侵】/【决斗】要【杀】）也能用【丈八蛇矛】：恰好选两张手牌即可
+    if (_isResponding &&
+        _askPrompt != null &&
+        promptAsksSha(_askPrompt!) &&
+        list.length == 2) {
+      _sendResponse('ZHANGBA:${list[0]},${list[1]}');
       return;
     }
     if (_isResponding) {
@@ -3183,6 +3212,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           isOutOfRange: outOfRange,
           isHitFlash: _hitSeats.contains(o.id),
           isDying: o.alive && o.hp <= 0,
+          isWaitingResponse: _waitingSeatId == o.id,
           name: o.name,
           hero: o.hero,
           hp: o.hp,
@@ -3291,6 +3321,12 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                             child: CenterStageView(cards: _shownCards),
                           ),
                           if (_dodgedStamp) _buildDodgeStamp(),
+                          if (_responseCard != null)
+                            Positioned(
+                              right: 2,
+                              bottom: 2,
+                              child: _buildResponseCard(_responseCard!),
+                            ),
                         ],
                       ),
                       if (_waitingForDodge) ...[
@@ -3378,6 +3414,63 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   // ---------- 底部操作区 ----------
 
   /// 中央结算区的「已抵消」印章（青白描边、微倾）
+  /// 「谁在思考响应」：服务端在向某玩家询问出闪/出杀/无懈前广播，respond 完再发空串清空。
+  void _handleWaitingResponse(String data) {
+    final id = data.trim();
+    _waitingTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _waitingSeatId = id.isEmpty ? null : id;
+    });
+    if (id.isEmpty) return;
+    // 兜底：8 秒内没收到清空就自己复位，避免边框一直闪
+    _waitingTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      setState(() => _waitingSeatId = null);
+    });
+  }
+
+  /// 响应牌微缩卡片：叠压在中央主牌右下角，不挤占主卡槽。
+  Widget _buildResponseCard(PlayedCard card) {
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(3, 3, 3, 2),
+        decoration: BoxDecoration(
+          color: const Color(0xE6140F0B),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF4DD0E1), width: 1.2),
+          boxShadow: const [
+            BoxShadow(color: Color(0x884DD0E1), blurRadius: 10),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CardFace(
+              typeKey: card.typeKey ?? '',
+              name: card.name,
+              suitSymbol: '',
+              points: card.points ?? '',
+              isRed: card.suit == 'HEART' || card.suit == 'DIAMOND',
+              index: 0,
+              showIndex: false,
+              width: 46,
+            ),
+            const SizedBox(height: 1),
+            Text(
+              '响应 · ${card.sourceName}',
+              style: const TextStyle(
+                fontSize: 7.4,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFFB2EBF2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDodgeStamp() {
     return IgnorePointer(
       child: Transform.rotate(
@@ -3807,6 +3900,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         id: widget.playerId,
                         isHitFlash: _hitSeats.contains(widget.playerId),
                         isDying: _hp <= 0,
+                        isWaitingResponse: _waitingSeatId == widget.playerId,
                         name: widget.playerName,
                         hero: _heroName,
                         hp: _hp,

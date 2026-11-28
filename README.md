@@ -296,3 +296,12 @@ lib/
 - 新增 `lib/views/components/wugu_stage.dart`（`WuGuStage` / `WuGuSlot`），格位按「牌面指纹」保持稳定，飞走/盖章不会让其余牌跳位。
 - `Command.WU_GU_POOL` 驱动；旧 `WuGuDialog` 保留为「没收到牌池包」时的兜底。
 - 新增 `test/wugu_stage_test.dart`（3 条：展台与印章渲染、轮到我可点选且已选牌不可点、锁定态点击无效）。
+
+## 本轮：响应可见性（AI 节拍 / 思考提示 / 响应牌叠压）
+
+| 改动 | 位置 |
+| --- | --- |
+| 席位呼吸脉冲 | `lib/views/components/table_seat_card.dart` 新增 `isWaitingResponse`：青色边框 + 脉冲光晕（`_WaitingPulse`，900ms 往返）+ 顶部「思考响应中…」胶囊 |
+| 谁在思考响应 | `lib/views/game_room_screen.dart` 的 `_handleWaitingResponse`：解析 `WAITING_RESPONSE`，空串清空，8 秒兜底自动复位；所有席位（含自己）都传 `isWaitingResponse` |
+| 响应牌叠压 | `_handleCardPlayed` 识别 `CARD_PLAYED` 末尾 `|1`：不进主卡槽，改为中央主牌右下角的微缩卡片（`_buildResponseCard`，46 宽 + 「响应 · 某某」标签，1.8s 淡出） |
+| 响应期丈八蛇矛 | `_onConfirmAction`：响应【南蛮入侵】/【决斗】要【杀】时，恰好选两张手牌点确定即发 `ZHANGBA:i,j`（由服务端校验武器与合法性） |

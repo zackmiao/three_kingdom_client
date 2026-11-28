@@ -53,6 +53,9 @@ enum Command {
     CARD_FLOW,
     // 明牌事件（过河拆桥/顺手牵羊/火攻）：ownerId|ownerName|typeKey|suitKey|point|cardName|action
     CARD_REVEALED,
+
+  /// 服务端等待某玩家响应（出闪/杀/无懈）：data = 玩家ID，空串表示清空。
+  WAITING_RESPONSE,
     ASK_ACTION,
     ASK_RESPONSE,
     RESPOND_CARD,
