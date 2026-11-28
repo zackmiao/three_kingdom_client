@@ -57,3 +57,4 @@ app.*.map.json
 /shot_*.png
 /preview_pid*.png
 
+.vscode/

@@ -108,7 +108,30 @@ class AudioService {
 
   /// 出牌音效：按牌名播放对应的短促音效（不再播放人物语音）
   Future<void> playCard(String cardName) async {
-    await playSfx('play', volume: 0.85);
+    // 按牌种分档，不再让 30 张牌共用同一个声音（D11）
+    const Set<String> shaNames = {'杀', '火杀', '雷杀'};
+    const Set<String> equipNames = {
+      '诸葛连弩', '丈八蛇矛', '青釭剑', '贯石斧', '八卦阵',
+      '仁王盾', '白银狮子', '藤甲', '+1马', '-1马',
+    };
+    const Set<String> trickNames = {
+      '过河拆桥', '顺手牵羊', '无中生有', '决斗', '无懈可击', '南蛮入侵', '万箭齐发',
+      '桃园结义', '五谷丰登', '火攻', '铁索连环', '兵粮寸断', '乐不思蜀', '闪电',
+    };
+    final String name = cardName.trim();
+    if (shaNames.contains(name)) {
+      await playSfx('play', volume: 0.95);
+    } else if (equipNames.contains(name)) {
+      await playSfx('shield', volume: 0.8);
+    } else if (trickNames.contains(name)) {
+      await playSfx('judge', volume: 0.7);
+    } else if (name == '桃' || name == '酒') {
+      await playSfx('heal', volume: 0.75);
+    } else if (name == '闪') {
+      await playSfx('shield', volume: 0.85);
+    } else {
+      await playSfx('play', volume: 0.85);
+    }
   }
 
   /// 武将出场：语音关闭后不再发声（保留空实现供调用点复用）

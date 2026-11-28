@@ -6,6 +6,7 @@ import '../models/card_catalog.dart';
 import '../models/card_model.dart';
 import '../models/hero_model.dart';
 import '../models/opponent_model.dart';
+import '../models/prompt_rules.dart';
 import '../models/skill_model.dart';
 import '../network/command.dart';
 import '../network/packet.dart';
@@ -932,7 +933,8 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     }
 
     // 【闪】抵消：中央盖「已抵消」印章，攻击光束同时消散
-    if (log.contains('躲避了攻击')) {
+    // 万箭齐发的「躲过了万箭齐发」在语义上也是抵消，同样盖章（D2）
+    if (log.contains('躲避了攻击') || log.contains('躲过了万箭齐发')) {
       final who = _playerMentioned(log);
       audio.playSfx('shield');
       setState(() {
@@ -976,7 +978,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     final heal = RegExp(r'回复\s*(\d+)\s*点体力').firstMatch(log);
     if (heal != null) {
       audio.playSfx('heal');
-      final who = _playerMentioned(log);
+      // 濒死救援播报是「❤ A 使用了 桃，为 B 回复 1 点体力」：
+      // 飘字与「桃飞回」必须落在被救的 B 身上，而不是施救者 A（D4）
+      final rescued = RegExp(r'使用了\s*【?桃】?\s*[，,]?\s*为\s*(\S+?)\s*回复').firstMatch(log);
+      final who = rescued != null ? rescued.group(1) : _playerMentioned(log);
       if (who != null) {
         _spawnSeatFloat(who, '+${heal.group(1)}', Colors.greenAccent);
         // 治愈光点：从中央结算区飞回被治疗者的武将卡
@@ -1019,6 +1024,24 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         _flash('+🛡${armorGain.group(1)}', const Color(0xFF64B5F6));
       }
     }
+    // 护甲吸满全部伤害时服务端文案不含数字（D3），单独给一次视听反馈
+    if (log.contains('护甲吸收了全部伤害')) {
+      audio.playSfx('shield');
+      final who = _playerMentioned(log);
+      if (who != null) {
+        _spawnSeatFloat(who, '护甲抵消', const Color(0xFF4DD0E1));
+      } else {
+        _flash('护甲抵消', const Color(0xFF4DD0E1));
+      }
+    }
+    // 藤甲「受到火焰伤害 +1」不含「N 点伤害」结构（D5），补一次火焰爆点
+    if (log.contains('受到火焰伤害 +1')) {
+      final who = _playerMentioned(log);
+      if (who != null) {
+        _spawnBurst(who, const Color(0xFFFF6D00));
+        _spawnSeatFloat(who, '火焰 +1', const Color(0xFFFF9540));
+      }
+    }
     _animateCardFeel(log);
 
     // 五谷丰登：别人选走了哪张牌（旁观者也能看到「谁拿了什么」）
@@ -1031,11 +1054,33 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       _spawnSeatFloat(picker, what, const Color(0xFFFFC94D));
     }
 
+    // 铁索连环重铸：服务端不发 CARD_PLAYED（D8），这里补一张中央牌并标注「重铸」
+    if (log.contains('重铸') && log.contains('铁索连环')) {
+      final who = _playerMentioned(log) ?? '';
+      final recastCard = PlayedCard(
+        name: '铁索连环',
+        typeKey: 'TIE_SUO_LIAN_HUAN',
+        sourceName: who,
+        targetNames: const ['重铸'],
+      );
+      audio.playSfx('play', volume: 0.9);
+      setState(() {
+        _shownCards.add(recastCard);
+        while (_shownCards.length > 4) {
+          _shownCards.removeAt(0);
+        }
+      });
+      Timer(const Duration(milliseconds: 2400), () {
+        if (mounted) setState(() => _shownCards.remove(recastCard));
+      });
+    }
+
     if (log.contains("使用了") || log.contains("打出") || log.contains("装备了")) {
       String? cardName;
       const allCardTypes = [
         "火杀", "雷杀", "杀", "闪", "桃", "酒", "过河拆桥", "顺手牵羊", "无中生有", "决斗",
         "南蛮入侵", "万箭齐发", "桃园结义", "五谷丰登", "火攻", "铁索连环", "兵粮寸断", "乐不思蜀", "闪电",
+        "无懈可击",
         "诸葛连弩", "丈八蛇矛", "青釭剑", "贯石斧", "八卦阵", "仁王盾", "白银狮子", "藤甲", "+1马", "-1马"
       ];
 
@@ -1084,7 +1129,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           points: playedPoints,
         );
         // 已经收到服务端的结构化 CARD_PLAYED（含真实牌名/花色/点数）时，不再用播报文本猜牌
-        if (DateTime.now().difference(_lastCardPlayedAt).inMilliseconds < 800) {
+        // 窗口从 800ms 收紧到 250ms：响应阶段打出的【闪】/【无懈可击】没有结构化包，
+        // 太长的窗口会把它们整段吞掉（D12）
+        if (DateTime.now().difference(_lastCardPlayedAt).inMilliseconds < 250) {
           return;
         }
         _lastTextPlayed = playedCard;
@@ -1837,11 +1884,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     final suitKey = seg[5].trim();
     final point = seg[6].trim();
     final cardName = seg[7].trim();
-    final gained = seg[8].trim() == 'GAIN';
+    final action = seg[8].trim();
+    final gained = action == 'GAIN';
 
-    // 只有「牌的主人」或「拿到牌的人」才有资格看到正面，其他人在牌桌上看到牌背
+    // 只有「牌的主人」或「拿到牌的人」才有资格看到正面，其他人在牌桌上看到牌背。
+    // 例外：火攻弃牌带 DISCARD_ALL —— 这张牌是被公开打出的，所有人都该看到正面（D7）。
     final me = widget.playerId;
-    final faceUp = ownerId == me || actorId == me || actorId.isEmpty;
+    final faceUp = ownerId == me ||
+        actorId == me ||
+        actorId.isEmpty ||
+        action == 'DISCARD_ALL';
     if (faceUp) {
       AudioService.instance.playCard(cardName);
       final revealed = PlayedCard(
@@ -2260,10 +2312,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           if (_activeSkill == '龙胆' || _activeSkill == '倾国') return true;
           return card.typeKey == 'SHAN';
         }
-        if (prompt != null &&
-            (prompt.contains('打出【杀】') ||
-                prompt.contains('一张【杀】') ||
-                prompt.contains('视为【杀】'))) {
+        if (prompt != null && _promptAsksSha(prompt)) {
           if (isSha) return true;
           if (_activeSkill == '武圣') return card.isRed;
           if (_activeSkill == '龙胆') return card.typeKey == 'SHAN';
@@ -2281,9 +2330,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         return isSha && _skills.any((s) => s.name == '龙胆');
       }
       // 「打出/使用【杀】」
-      if (prompt.contains('打出【杀】') ||
-          prompt.contains('一张【杀】') ||
-          prompt.contains('视为【杀】')) {
+      if (_promptAsksSha(prompt)) {
         if (isSha) return true;
         // 龙胆：闪可当杀
         if (card.typeKey == 'SHAN' && _skills.any((s) => s.name == '龙胆')) return true;
@@ -2308,6 +2355,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     if (card.typeKey == 'JIU') return _shaLeft > 0 || _hp < _maxHp;
     return true;
   }
+
+  /// 服务端「要求打出一张【杀】」的提示措辞不统一，统一交给 prompt_rules 判定（D1）
+  bool _promptAsksSha(String prompt) => promptAsksSha(prompt);
 
   /// 出牌阶段剩余可出杀次数（从服务端提示里取，解析失败当作无限）
   int get _shaLeft => _shaLeftFromPrompt();
