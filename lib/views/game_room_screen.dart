@@ -224,6 +224,9 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
   /// 当前正在等待谁响应（WAITING_RESPONSE），该席位显示呼吸脉冲边框
   String? _waitingSeatId;
   Timer? _waitingTimer;
+
+  /// 刚发过「牌被拿走 / 被弃置」明牌动画的席位，短时间内屏蔽手牌数量变化触发的冗余飞牌
+  final Map<String, DateTime> _suppressFlowUntil = <String, DateTime>{};
   /// 响应阶段打出的牌（【闪】/【无懈可击】/决斗续【杀】），以微缩卡片叠压在中央主牌右下角
   PlayedCard? _responseCard;
 
@@ -296,12 +299,16 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         // 判定牌：直接弹判定结果窗口（不再做「牌飞向武将」的特效）
         AudioService.instance.playSfx('judge');
         JudgeResultDialog.show(context, packet.data);
+        _handleJudgeSeatHint(packet.data);
         break;
       case Command.CARD_PLAYED:
         _handleCardPlayed(packet.data);
         break;
       case Command.WAITING_RESPONSE:
         _handleWaitingResponse(packet.data);
+        break;
+      case Command.CARD_TRANSFER:
+        _handleCardTransfer(packet.data);
         break;
       case Command.CARD_FLOW:
         _handleCardFlow(packet.data);
@@ -539,7 +546,10 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         _shownCards.removeAt(0);
       }
     });
+    // 对自己使用的牌（桃 / 酒 / 无中生有 / 闪电 / 自用铁索·火攻）不画指向自己的退化光束
+    final beamSrcId = sourceId.isEmpty ? _findPlayerIdByName(sourceName) : sourceId;
     for (var i = 0; i < targetIds.length; i++) {
+      if (beamSrcId != null && targetIds[i] == beamSrcId) continue;
       Future.delayed(Duration(milliseconds: 120 * i), () {
         if (!mounted || gen != _cardGen) return;
         setState(() => _activeCardTargetIds.add(targetIds[i]));
@@ -697,6 +707,56 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       arc: arc,
     );
     setState(() => _flying.add(f));
+  }
+
+  /// 判定结果落到席位的醒目提示：
+  /// 【乐不思蜀】生效 → 红色「跳过出牌」；【兵粮寸断】生效 → 红色「跳过摸牌」；
+  /// 【八卦阵】红色 → 青色「八卦抵消」。
+  void _handleJudgeSeatHint(String data) {
+    final seg = data.split('|');
+    if (seg.length < 7) return;
+    final who = seg[0].trim();
+    final trick = seg[1].trim();
+    final effect = seg[6];
+    if (who.isEmpty || _findPlayerIdByName(who) == null) return;
+    if (trick == '乐不思蜀' && effect.contains('跳过出牌阶段')) {
+      _spawnSeatFloat(who, '❌ 跳过出牌', const Color(0xFFFF5252));
+    } else if (trick == '兵粮寸断' && effect.contains('跳过摸牌阶段')) {
+      _spawnSeatFloat(who, '❌ 跳过摸牌', const Color(0xFFFF5252));
+    } else if (trick == '八卦阵' && effect.contains('视为打出一张【闪】')) {
+      _spawnSeatFloat(who, '🔮 八卦抵消', const Color(0xFF4DD0E1));
+    }
+  }
+
+  /// 牌在席位之间移动（【闪电】判定未命中移交下家）：图标从原席位飞向下家席位
+  void _handleCardTransfer(String data) {
+    final seg = data.split('|');
+    if (seg.length < 6) return;
+    final fromId = seg[0].trim();
+    final fromName = seg[1].trim();
+    final toId = seg[2].trim();
+    final toName = seg[3].trim();
+    final typeKey = seg[4].trim();
+    final cardName = seg[5].trim();
+
+    _spawnSeatFloat(fromName, '$cardName 移出', const Color(0xFFB0BEC5));
+    _spawnSeatFloat(toName, '$cardName 移入', const Color(0xFF9575CD));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final from = _stageCenterOf(_seatKeyOf(fromId));
+      final to = _stageCenterOf(_seatKeyOf(toId));
+      if (from == null || to == null) return;
+      _spawnFlight(
+        fromPos: from,
+        toPos: to,
+        dest: 'seat',
+        typeKey: CardFace.hasArt(typeKey) ? typeKey : null,
+        name: cardName,
+        width: 64,
+        height: 90,
+        arc: 70,
+      );
+    });
   }
 
   void _removeFlight(_FlyingCard f) {
@@ -985,7 +1045,7 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
 
     // 【闪】抵消：中央盖「已抵消」印章，攻击光束同时消散
     // 万箭齐发的「躲过了万箭齐发」在语义上也是抵消，同样盖章（D2）
-    if (log.contains('躲避了攻击') || log.contains('躲过了万箭齐发')) {
+    if (log.contains('躲避了攻击') || log.contains('躲过了万箭齐发') || log.contains('借助【八卦阵】')) {
       final who = _playerMentioned(log);
       audio.playSfx('shield');
       setState(() {
@@ -1053,6 +1113,14 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
         });
       } else {
         _flash('+${heal.group(1)}', Colors.greenAccent);
+      }
+    }
+    // 【桃园结义】轮询到满血角色：灰白「满血跳过」飘字
+    final fullHp = RegExp(r'(\S+?)\s*满血跳过').firstMatch(log);
+    if (fullHp != null) {
+      final who = fullHp.group(1);
+      if (who != null && _findPlayerIdByName(who) != null) {
+        _spawnSeatFloat(who, '满血跳过', const Color(0xFFBDBDBD));
       }
     }
     final shield = RegExp(r'抵消了\s*(\d+)\s*点伤害').firstMatch(log);
@@ -1911,6 +1979,11 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     final id = seg[0].trim();
     final delta = int.tryParse(seg[2].trim()) ?? 0;
     if (id.isEmpty || delta == 0 || id == widget.playerId) return;
+    // 顺手牵羊 / 过河拆桥：CARD_REVEALED 已经把那张牌飞走了，这里屏蔽同帧的「手牌 -N 飞向牌堆」冗余动画
+    if (delta < 0) {
+      final until = _suppressFlowUntil[id];
+      if (until != null && DateTime.now().isBefore(until)) return;
+    }
     final n = delta.abs().clamp(1, 5);
     AudioService.instance
         .playSfx(delta > 0 ? 'draw' : 'play', volume: 0.6);
@@ -1948,22 +2021,31 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
     final cardName = seg[7].trim();
     final action = seg[8].trim();
     final gained = action == 'GAIN';
+    final bool shownOnly = action == 'SHOW';
 
     // 只有「牌的主人」或「拿到牌的人」才有资格看到正面，其他人在牌桌上看到牌背。
     // 例外：火攻弃牌带 DISCARD_ALL —— 这张牌是被公开打出的，所有人都该看到正面（D7）。
     final me = widget.playerId;
+    // 公开信息强制明置：过河拆桥（DISCARD）、火攻展示/弃牌（SHOW / DISCARD_ALL）、
+    // 顺手牵羊等 GAIN 也人人可见牌面（V3 旁观视角同样能看到）。
     final faceUp = ownerId == me ||
         actorId == me ||
         actorId.isEmpty ||
-        action == 'DISCARD_ALL';
+        action == 'DISCARD' ||
+        action == 'DISCARD_ALL' ||
+        action == 'SHOW' ||
+        action == 'GAIN';
     if (faceUp) {
       AudioService.instance.playCard(cardName);
       final revealed = PlayedCard(
         name: cardName,
         typeKey: typeKey,
         sourceName: ownerName,
-        targetNames: [gained ? (actorName.isEmpty ? '已被拿走' : '被 $actorName 拿走')
-            : '已被弃置'],
+        targetNames: [
+          gained
+              ? (actorName.isEmpty ? '已被拿走' : '被 $actorName 拿走')
+              : (shownOnly ? '公开展示' : '已被弃置')
+        ],
         points: point,
         suit: suitKey,
       );
@@ -1979,6 +2061,17 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       AudioService.instance.playSfx('play', volume: 0.5);
     }
 
+    // 被弃置 / 被拿走的席位提示：暗紫「牌被弃置」、青色「被拿走 1 张」
+    _suppressFlowUntil[ownerId] = DateTime.now().add(const Duration(milliseconds: 700));
+    _spawnSeatFloat(
+        ownerName,
+        gained
+            ? '被拿走 1 张'
+            : (shownOnly ? '展示手牌' : '牌被弃置'),
+        gained
+            ? const Color(0xFF26C6DA)
+            : (shownOnly ? const Color(0xFFFFB74D) : const Color(0xFF7E57C2)));
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final from = _stageCenterOf(_seatKeyOf(ownerId));
@@ -1989,11 +2082,13 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
       if (gained) {
         to = actorId == me ? _stageCenterOf(_handKey) : _stageCenterOf(_seatKeyOf(actorId));
         to ??= _stageCenterOf(_deckKey);
+      } else if (shownOnly) {
+        to = _stageCenterOf(_centerKey);
       }
       _spawnFlight(
         fromPos: from,
         toPos: to,
-        dest: gained ? 'hand' : 'deck',
+        dest: gained ? 'hand' : (shownOnly ? 'center' : 'deck'),
         typeKey: faceUp && CardFace.hasArt(typeKey) ? typeKey : null,
         suitSymbol: faceUp ? _suitSymbolOf(suitKey) : '',
         points: faceUp ? point : '',
@@ -3239,6 +3334,29 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
           isTargetSelectionMode: isTargetSelecting,
           onCardDropped: (card, targetId) => _onCardDroppedToTarget(card, targetId),
           onTap: () {
+            // 客户端目标合法性预校验（与服务端 CardPlayDispatcher 保持一致）
+            String? selType;
+            if (_selectedIndices.length == 1) {
+              for (final c in _handCards) {
+                if (c.index == _selectedIndices.first) {
+                  selType = c.typeKey;
+                  break;
+                }
+              }
+            }
+            final bool emptyRegion = o.handCount == 0 &&
+                (o.equips.isEmpty || o.equips == '-') &&
+                (o.judges.isEmpty || o.judges == '-');
+            if (selType == 'GUO_HE_CHAI_QIAO' || selType == 'SHUN_SHOU_QIAN_YANG') {
+              if (emptyRegion) {
+                _flash('${o.name} 手牌、装备区、判定区都是空的，无法指定', Colors.orangeAccent);
+                return;
+              }
+            }
+            if (selType == 'HUO_GONG' && o.handCount == 0) {
+              _flash('${o.name} 没有手牌，【火攻】无法指定', Colors.orangeAccent);
+              return;
+            }
             setState(() {
               final isTieSuo = _selectedIndices.isNotEmpty &&
                   _handCards.any((c) =>
@@ -3927,6 +4045,35 @@ class _GameRoomScreenState extends State<GameRoomScreen> {
                         isCurrentTurn: _turnPlayerId == widget.playerId,
                         currentPhaseName:
                             _turnPlayerId == widget.playerId ? _currentPhaseName : null,
+                        isSelectedAsTarget:
+                            _selectedTargetIds.contains(widget.playerId),
+                        // 【铁索连环】可以选自己（1~2 名，可含使用者）；【火攻】也可以对自己使用
+                        onTap: () {
+                          String? selType;
+                          if (_selectedIndices.length == 1) {
+                            for (final c in _handCards) {
+                              if (c.index == _selectedIndices.first) {
+                                selType = c.typeKey;
+                                break;
+                              }
+                            }
+                          }
+                          if (selType != 'TIE_SUO_LIAN_HUAN' &&
+                              selType != 'HUO_GONG') {
+                            return;
+                          }
+                          setState(() {
+                            if (_selectedTargetIds.contains(widget.playerId)) {
+                              _selectedTargetIds.remove(widget.playerId);
+                            } else if (selType == 'HUO_GONG' ||
+                                _selectedTargetIds.length < 2) {
+                              if (selType == 'HUO_GONG') {
+                                _selectedTargetIds.clear();
+                              }
+                              _selectedTargetIds.add(widget.playerId);
+                            }
+                          });
+                        },
                       ),
                     ),
                   ),
